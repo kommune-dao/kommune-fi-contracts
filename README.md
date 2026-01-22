@@ -252,6 +252,26 @@ The script provides:
 - Alternative to proportional exits for Composable Stable Pools
 - Comparison with single-token exit values
 
+## Documentation
+
+Comprehensive documentation is organized in the `docs/` directory:
+
+### 📁 Documentation Structure
+- **[docs/audit/](./docs/audit/)** - Audit preparation and security documentation
+- **[docs/deployment/](./docs/deployment/)** - Deployment and upgrade guides  
+- **[docs/architecture/](./docs/architecture/)** - System design and investment strategies
+- **[docs/technical/](./docs/technical/)** - Technical implementation details
+
+### 📚 Key Documents
+- [Deployment Guide](./docs/deployment/deployment-guide.md) - How to deploy contracts
+- [Upgrade Guide](./docs/deployment/upgrade-guide.md) - Contract upgrade procedures
+- [Audit Preparation](./docs/audit/audit-readme.md) - Security audit checklist
+- [Investment Profiles](./docs/architecture/investment-profiles.md) - Risk profile configurations
+- [LP Calculation Logic](./docs/technical/lp-calculation-logic.md) - LP token valuation
+- [Sequential Swap](./docs/technical/sequential-swap.md) - Multi-LST swap logic
+
+For Korean documentation, append `-kr` to the filename (e.g., `deployment-guide-kr.md`).
+
 ## Important Notes
 
 ⚠️ **SwapContract is FINALIZED**: The SwapContract has been thoroughly tested with all 4 LSTs and should NOT be modified.

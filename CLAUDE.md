@@ -1,398 +1,302 @@
-# CLAUDE.md - Project-Specific Instructions for KommuneFi Contracts
+# CLAUDE.md - AI Agent Development Guide
 
-## 🚨 MANDATORY FIRST STEPS - ALWAYS READ THIS 🚨
+> **Purpose**: Essential instructions for AI agents working on KommuneFi Contracts  
+> **Company**: Colligence Labs  
+> **Project**: Kommune DAO - Multi-LST Yield Optimization Vault
 
-**Before implementing ANY new feature or fixing ANY issue:**
+---
 
-### ⚠️ CRITICAL: Deposit Function Usage (2025-08-15)
+## 🚨 MANDATORY FIRST STEPS
 
-**NEVER confuse these two deposit functions:**
+**Before implementing ANY feature or fix:**
 
-1. **`deposit(uint256 assets, address receiver)`** - WKAIA ONLY
-   - Requires user to ALREADY have WKAIA
-   - Requires WKAIA approve() to ShareVault first
-   - DO NOT send native KAIA as msg.value
-   ```javascript
-   // WRONG ❌
-   await shareVault.deposit(amount, user, {value: amount})  // WILL FAIL!
-   
-   // CORRECT ✅
-   await wkaia.deposit({value: amount})  // First wrap KAIA to WKAIA
-   await wkaia.approve(shareVault, amount)  // Then approve
-   await shareVault.deposit(amount, user)  // Finally deposit
-   ```
+1. **Read existing implementations FIRST**
+   - `src/SwapContract.sol` - ✅ FINALIZED, do not modify
+   - `src/KommuneVaultV2.sol` - Reference for swap/withdrawal patterns
+   - Working scripts in `scripts/tests/`
 
-2. **`depositKAIA(address receiver)`** - NATIVE KAIA
-   - For direct native KAIA deposits
-   - NO approve needed
-   - Send KAIA as msg.value
-   ```javascript
-   // CORRECT ✅
-   await shareVault.depositKAIA(user, {value: amount})
-   ```
+2. **Check historical solutions**
+   - See [docs/claude-history.md](./docs/claude-history.md) for resolved issues
+   - Don't reinvent - copy proven patterns
 
-**Common Mistake**: Using `deposit()` with `{value: amount}` - This ALWAYS fails because deposit() expects WKAIA, not native KAIA!
+3. **Never hardcode addresses**
+   - Always use deployment files in `deployments/`
+   - Use `utils/deployment-paths.js` helper
 
-### ✅ REQUIRED CHECKLIST:
-1. **📖 Read existing successful implementations FIRST**:
-   - `src/KommuneVaultV2.sol` - Reference for all swap logic, withdrawal patterns, LST handling
-   - `src/SwapContract.sol` - FINALIZED, do not modify, reference for swap patterns
-   - Previous working scripts in `scripts/tests/`
+---
 
-2. **🔍 Search for existing solutions**:
-   - Check if the problem was already solved in KommuneVaultV2.sol
-   - Look for similar patterns in working contracts
-   - Compare with previous successful implementations
+## 📁 Project Structure
 
-3. **📋 Document before coding**:
-   - What existing pattern will you copy?
-   - Why is this pattern proven to work?
-   - What specific lines from working contracts are you referencing?
+```
+kommune-fi-contracts/
+├── src/                    # Smart contracts (V2 architecture)
+│   ├── ShareVault.sol     # ERC-4626 share management
+│   ├── VaultCore.sol      # Asset management + LP support
+│   ├── SwapContract.sol   # ✅ FINALIZED - Balancer swaps
+│   └── ClaimManager.sol   # Unstake/claim operations
+├── scripts/               # Deployment & utilities
+│   ├── deployFresh*.js   # Fresh deployments
+│   ├── upgradeAll*.js    # Contract upgrades
+│   ├── tests/            # Integration tests
+│   └── temp/             # ⚠️ Put new test scripts here first
+├── deployments/          # Deployment configs (JSON)
+│   ├── mainnet/         # Kaia mainnet
+│   ├── testnet/         # Kairos testnet
+│   └── archive/         # Legacy files
+├── docs/                # Documentation
+│   ├── audit/          # Audit preparation
+│   ├── deployment/     # Deployment guides
+│   ├── architecture/   # Design & strategy
+│   └── technical/      # Implementation details
+└── utils/              # Helper functions
+```
 
-4. **❌ DO NOT assume or reimplement from scratch**:
-   - Don't guess at swap logic - copy from KommuneVaultV2.sol
-   - Don't reinvent LST handling - use proven patterns
-   - Don't ignore documented issues - follow established solutions
+---
 
-### 🎯 Key Reference Contracts:
-- **KommuneVaultV2.sol**: Multi-LST swaps, withdrawal logic, slippage handling, stKAIA processing
-- **SwapContract.sol**: GIVEN_OUT swaps, token sorting, balance verification
-- **Previous test scripts**: Proven test patterns and scenarios
+## ⚠️ CRITICAL: Common Mistakes to Avoid
 
-**Violation of this checklist leads to repeated mistakes and wasted time.**
+### 1. Deposit Function Confusion
 
-## 📚 Historical Issues Reference
+**Two different deposit functions - DO NOT MIX:**
 
-For detailed historical issues and their resolutions, see **[docs/claude-history.md](./docs/claude-history.md)**
-
-Key resolved issues include:
-- queryBatchSwap smart contract limitations
-- Multi-LST sequential swap patterns  
-- Withdrawal threshold calculations
-- WKAIA deposit state sync fixes
-- ClaimManager storage layout
-- LP token valuation
-- Contract upgrade cache issues
-
-## Critical Instructions
-
-### Script Organization Rules
-
-**⚠️ IMPORTANT: Test Script Management**
-
-1. **Always create new test scripts in `scripts/temp/` folder first**
-   - All new test scripts must be created in `scripts/temp/`
-   - Only move to `scripts/` when explicitly instructed to keep/save
-   - This keeps the project organized and makes cleanup easier
-
-2. **Script Folder Structure:**
-   - `scripts/` - Main scripts that are confirmed and kept
-   - `scripts/temp/` - Temporary test scripts (can be cleaned up later)
-   - `scripts/tests/` - Additional test scripts for specific components
-
-3. **When creating new test scripts:**
-   ```
-   // WRONG
-   scripts/newTestScript.js
-   
-   // CORRECT
-   scripts/temp/newTestScript.js
-   ```
-
-### SwapContract.sol - FINALIZED (DO NOT MODIFY)
-
-**⚠️ IMPORTANT: SwapContract.sol has been finalized and thoroughly tested. DO NOT modify this file under any circumstances.**
-
-#### Status: ✅ FINALIZED on 2025-08-14 (Asset recovery functions added 2025-08-25)
-
-The SwapContract has been:
-- Fully tested with all 4 LSTs (wKoKAIA, wGCKAIA, wstKLAY, stKAIA)
-- Optimized to use unified sorting logic for all tokens
-- Successfully performs GIVEN_OUT swaps for precise WKAIA output amounts
-- Integrated with Balancer V2 pools on Kairos testnet
-- Asset recovery functions added for stranded tokens
-
-#### DO NOT:
-- ❌ Modify any function in SwapContract.sol
-- ❌ Question the token sorting logic (it's been thoroughly tested)
-- ❌ Change pool IDs or token addresses
-- ❌ Alter the GIVEN_OUT swap implementation
-
-## Key Concepts
-
-### stKAIA Rate Provider Application (Fixed 2025-09-03)
-
-**✅ FIXED: Direct stKAIA holdings now correctly apply rate provider (1.0589x)**
-
-#### Background:
-- stKAIA is a rebasing token where 1 stKAIA > 1 KAIA due to accumulated staking rewards
-- Rate provider at 0xefBDe60d5402a570DF7CA0d26Ddfedc413260146 provides the conversion rate
-- Other LSTs (wKoKAIA, wGCKAIA, wstKLAY) use unwrapping functions for conversion
-
-#### The Fix:
-VaultCore now applies the rate provider when calculating totalAssets for direct stKAIA holdings (index 3).
-
-### Important: Understanding Shares vs WKAIA
-
-**⚠️ CRITICAL: Users care about WKAIA amounts, not shares**
-
-#### Key Concepts:
-- **Shares**: Internal accounting tokens representing ownership percentage in the vault
-- **WKAIA**: Actual wrapped KAIA tokens that users can withdraw and use
-- **maxWithdraw**: Returns the maximum amount of **WKAIA** (not shares!) that can be withdrawn
-- **balanceOf**: Returns the amount of **shares** (not WKAIA!) owned by the user
-
-#### Correct Approach for Withdrawals:
 ```javascript
-// WRONG - using shares
+// deposit() - WKAIA only (requires approve first)
+await wkaia.deposit({value: amount});      // Wrap KAIA to WKAIA
+await wkaia.approve(shareVault, amount);   // Approve
+await shareVault.deposit(amount, user);    // Deposit
+
+// depositKAIA() - Native KAIA (no approve needed)
+await shareVault.depositKAIA(user, {value: amount});
+```
+
+❌ **NEVER**: `await shareVault.deposit(amount, user, {value: amount})`  
+→ This ALWAYS fails! deposit() expects WKAIA, not native KAIA.
+
+### 2. Shares vs WKAIA Amounts
+
+```javascript
+// ❌ WRONG - using shares directly
 const shares = await shareVault.balanceOf(user);
-const withdrawShares = shares / 2n; // 50% of shares
-await shareVault.redeem(withdrawShares, user, user);
+await shareVault.redeem(shares / 2n, user, user);
 
-// CORRECT - using WKAIA amounts
-const maxWKAIA = await shareVault.maxWithdraw(user); // This is WKAIA amount!
-const withdrawWKAIA = maxWKAIA / 2n; // 50% of withdrawable WKAIA
-await shareVault.withdraw(withdrawWKAIA, user, user);
+// ✅ CORRECT - using WKAIA amounts
+const maxWKAIA = await shareVault.maxWithdraw(user);  // Returns WKAIA amount
+await shareVault.withdraw(maxWKAIA / 2n, user, user);
 ```
 
-## Current Architecture: Separated Vault (V2)
+**Remember**: 
+- `balanceOf()` returns **shares** (internal accounting)
+- `maxWithdraw()` returns **WKAIA** (actual withdrawable amount)
+- Users care about WKAIA, not shares!
 
-### Core Contracts
-- `src/ShareVault.sol` - ERC-4626 share management (12.23 KB)
-- `src/VaultCore.sol` - Asset management logic with LP support (~20 KB)
-- `src/SwapContract.sol` - ✅ FINALIZED - Handles Balancer swaps (9.26 KB)
-- `src/ClaimManager.sol` - Handles unstake/claim operations via delegatecall
+### 3. SwapContract.sol is FINALIZED
 
-### Deployment Addresses
+**✅ Status**: Thoroughly tested with all 4 LSTs (wKoKAIA, wGCKAIA, wstKLAY, stKAIA)
 
-**Note**: Always refer to `deployments-{profile}-{network}.json` files for the latest addresses.
+❌ **DO NOT**:
+- Modify SwapContract.sol
+- Question the token sorting logic
+- Change pool IDs or addresses
+- Alter GIVEN_OUT swap implementation
 
-#### Kairos Testnet
+---
 
-##### STABLE Profile (Last Updated: 2025-09-02)
-- ShareVault: `0x90af1a8b94480Ce57a4c4E86d14c8Fb3D95b425E`
-- VaultCore: `0xB4a79CAd8988f5698CF76b3A7806BE1A8929AFDd`
-- SwapContract: `0xC0AE8cdb7dd42eAfC2A5371d397369856c73130B`
-- ClaimManager: `0xef479B31D3540133dd34d011A202853C7E96Bf6E`
-- WKAIA: `0x0339d5Eb6D195Ba90B13ed1BCeAa97EbD198b106`
-- Balancer Vault: `0x1c9074AA147648567015287B0d4185Cb4E04F86d`
+## 📝 Development Guidelines
 
-##### BALANCED Profile (Last Updated: 2025-09-02)
-- ShareVault: `0x6c0B7b618bcECF5b5bA9F59dD0694ffbe86C6966`
-- VaultCore: `0x05fac5656f155bE7d2a94b4621AF902059Fc078A`
-- SwapContract: `0x28e0F46B94267620A20d5Eb368d054367731875c`
-- ClaimManager: `0x6784bb46a251532bF4426761b8DbFaf3b11381EC`
-- WKAIA: `0x0339d5Eb6D195Ba90B13ed1BCeAa97EbD198b106`
-- Balancer Vault: `0x1c9074AA147648567015287B0d4185Cb4E04F86d`
+### Script Organization
 
-#### Kaia Mainnet
+**⚠️ IMPORTANT**: Always create new test scripts in `scripts/temp/` first
 
-##### STABLE Profile (Last Updated: 2025-09-01)
-- ShareVault: `0x86799f0B252822dE36c8D8384d443355E4d478AE`
-- VaultCore: `0x06ce7e66D219a261eDa4F15Fd503F2Ac2B81Afc9`
-- SwapContract: `0xAB0330C58760A85Bc40c296C4415b2fD04F9128B`
-- ClaimManager: `0x30d2850364af9b357cf7557078bf5B7B43ee9f8f`
-- WKAIA: `0x19Aac5f612f524B754CA7e7c41cbFa2E981A4432`
-- Balancer Vault: `0xbF1f3C783C8f6f4582c0a0508f2790b4E2C2E581`
+```bash
+# ✅ CORRECT
+scripts/temp/myNewTest.js
 
-##### BALANCED Profile (Last Updated: 2025-09-01)
-- ShareVault: `0xF4C64918dbbdd7a17327C0Ea1aA625A9f3Ed2b9b`
-- VaultCore: `0x95A257399BeB3D2c959a1E64d35DD872Fdedb2dA`
-- SwapContract: `0x015da9B47A34F98C4efC70D9898e4E0913FF7e4d`
-- ClaimManager: `0xab1D9E799Cf560f50449e4A0FB7c7A26c507a366`
-- WKAIA: `0x19Aac5f612f524B754CA7e7c41cbFa2E981A4432`
-- Balancer Vault: `0xbF1f3C783C8f6f4582c0a0508f2790b4E2C2E581`
+# ❌ WRONG
+scripts/myNewTest.js
+```
 
-### Scripts Organization
-- `scripts/` - Essential deployment and configuration scripts
-  - **Deployment Scripts:**
-    - `deployFreshStable.js` - Deploy fresh V2 with STABLE profile
-    - `deployFreshBalanced.js` - Deploy fresh V2 with BALANCED profile
-  - **Standard Upgrade Scripts** (may encounter cache issues):
-    - `upgradeAll.js` - Upgrade all V2 contracts (supports PROFILE env var)
-    - `upgradeShareVault.js` - Upgrade ShareVault only
-    - `upgradeVaultCore.js` - Upgrade VaultCore only
-    - `upgradeSwapContract.js` - Upgrade SwapContract only
-  - **Enhanced Upgrade Scripts** (with cache and library fixes - RECOMMENDED):
-    - `upgradeAllFixed.js` - Upgrade all contracts with cache handling and library linking
-    - `upgradeShareVaultFixed.js` - ShareVault upgrade with forced redeployment
-    - `upgradeVaultCoreFixed.js` - VaultCore upgrade with LPCalculations library linking
-    - `upgradeSwapContractFixed.js` - SwapContract upgrade with cache handling
-  - **Configuration Scripts:**
-    - `setAPY.js` - Set APY values
-    - `sendWKAIAtoVaultCores.js` - Send WKAIA rewards to VaultCore contracts
-    - `recoverSwapAssets.js` - Recover stranded assets from SwapContract
-- `scripts/tests/` - Test scripts
-  - `testIntegratedStable.js` - STABLE mode integrated test
-  - `testIntegratedBalanced.js` - BALANCED mode integrated test
-  - `testUnstakeClaim.js` - Owner unstake/claim operations test
-- `scripts/temp/` - Temporary test scripts (create new tests here first)
+Only move to `scripts/` when explicitly approved.
 
-### LST Token Information
-1. **wKoKAIA** (Index 0)
-   - Handler/Asset: `0xb15782EFbC2034E366670599F3997f94c7333FF9`
-   - Wrapped Token: `0x9a93e2fcDEBE43d0f8205D1cd255D709B7598317`
+### Getting Deployment Addresses
 
-2. **wGCKAIA** (Index 1)
-   - Handler: `0xe4c732f651B39169648A22F159b815d8499F996c`
-   - Asset: `0x4EC04F4D46D7e34EBf0C3932B65068168FDcE7f6`
-   - Wrapped Token: `0x324353670B23b16DFacBDE169Cd8ebF8C8bf6601`
-
-3. **wstKLAY** (Index 2)
-   - Handler: `0x28B13a88E72a2c8d6E93C28dD39125705d78E75F`
-   - Asset: `0x524dCFf07BFF606225A4FA76AFA55D705B052004`
-   - Wrapped Token: `0x474B49DF463E528223F244670e332fE82742e1aA`
-
-4. **stKAIA** (Index 3)
-   - Handler: `0x4C0d434C7DD74491A52375163a7b724ED387d0b6`
-   - Asset/Wrapped: `0x45886b01276c45Fe337d3758b94DD8D7F3951d97`
-
-## Development Guidelines
-
-### When Working on This Project:
-1. **Use V2 Architecture** - ShareVault + VaultCore (separated)
-2. **Never modify SwapContract.sol** - It's finalized and tested
-3. **Test scripts are in `scripts/tests/` directory**
-4. **ALWAYS use deployment files for addresses** - Never hardcode addresses
-   - Kairos testnet: `deployments-stable-kairos.json`, `deployments-balanced-kairos.json`
-   - Kaia mainnet: `deployments-stable-kaia.json`, `deployments-balanced-kaia.json`
-   - These files are the source of truth for all contract addresses
-
-### Getting Contract Addresses:
 ```javascript
-// Always read from deployment files
-const deployments = JSON.parse(fs.readFileSync(`deployments-${profile}-${network}.json`, 'utf8'));
-const shareVault = deployments.shareVault;
-const vaultCore = deployments.vaultCore;
-// etc...
+// Use helper function (recommended)
+const { getDeploymentPathWithFallback } = require('./utils/deployment-paths');
+const path = getDeploymentPathWithFallback(network, profile);
+const deployments = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+// Or direct path
+const mainnetPath = 'deployments/mainnet/kaia-stable.json';
+const testnetPath = 'deployments/testnet/kairos-balanced.json';
 ```
 
-### Sending Rewards to VaultCore:
-Use `scripts/sendWKAIAtoVaultCores.js` to send WKAIA rewards:
+**Deployment files are the source of truth** - never hardcode addresses.
+
+### Key Commands
+
 ```bash
-# Send 0.5 WKAIA to each VaultCore (default)
+# Deploy fresh
+npx hardhat run scripts/deployFreshStable.js --network kairos
+npx hardhat run scripts/deployFreshBalanced.js --network kaia
+
+# Upgrade (use *Fixed.js versions - handle cache issues)
+PROFILE=stable npx hardhat run scripts/upgradeAllFixed.js --network kairos
+
+# Test
+npx hardhat run scripts/tests/testIntegratedStable.js --network kairos
+npx hardhat run scripts/tests/testIntegratedBalanced.js --network kairos
+
+# Send rewards
 npx hardhat run scripts/sendWKAIAtoVaultCores.js --network kaia
-npx hardhat run scripts/sendWKAIAtoVaultCores.js --network kairos
-
-# Send custom amount
-SEND_AMOUNT=1 npx hardhat run scripts/sendWKAIAtoVaultCores.js --network kaia
-```
-This increases totalAssets for all depositors proportionally.
-
-### Investment Profile Ratios Explained:
-- **investRatio**: Percentage of total WKAIA to convert to LSTs (e.g., 100%)
-- **balancedRatio**: Percentage of LSTs to add to LP pools (e.g., 50%)
-- **Example**: With investRatio=100% and balancedRatio=50%:
-  - 0% remains as WKAIA liquidity buffer
-  - 50% becomes LST and stays as LST (100% × 50%)
-  - 50% becomes LST then goes to LP pools (100% × 50%)
-
-## Recent Updates
-
-### LP Query Tools Added (2025-09-03)
-
-**New utility scripts for LP token analysis:**
-- **`scripts/queryLPExit.js`** - Query single-token exit values from Balancer pools
-  - Supports custom LP amounts and specific token exits
-  - Calculates unwrapped KAIA values with rate providers
-- **`scripts/queryBPTSwap.js`** - Query BPT→WKAIA swap rates through dedicated pool
-  - Alternative to proportional exits for Composable Stable Pools
-  - Provides market-based pricing
-
-See [README.md](./README.md#lp-token-valuation-tools) for detailed usage instructions.
-
-### stKAIA Rate Provider Fix (2025-09-03)
-
-**✅ FIXED: Direct stKAIA holdings now correctly apply rate provider**
-
-VaultCore's `getTotalAssets()` now properly applies the rate provider (1.0589x) to direct stKAIA holdings, ensuring accurate share pricing for all depositors.
-
-### LP Calculation Logic for Mainnet 6-Token Pool (2025-09-02)
-
-**✅ FINALIZED: LP value calculation correctly handles all tokens in mainnet pool**
-
-The LP calculation logic has been updated to properly handle the 6-token mainnet pool:
-
-**Token Handling:**
-- **KoKAIA, GCKAIA, stKLAY**: Use unwrapped amounts only (no rate provider multiplication)
-- **stKAIA**: Uses rate provider (0xefBDe60d5402a570DF7CA0d26Ddfedc413260146) for KAIA conversion
-- **sKLAY**: Uses rate provider (0x15F6f25fDedf002B02d6E6be410451866Ff5Ac93) for KAIA conversion
-- **BPT**: Excluded from value calculation
-
-For detailed implementation, see [LP_CALCULATION_LOGIC.md](./docs/LP_CALCULATION_LOGIC.md)
-
-### Contract Upgrade Scripts with Cache and Library Issues Resolution (2025-09-02)
-
-**⚠️ IMPORTANT: Enhanced upgrade scripts that handle cache issues and library linking**
-
-#### Background:
-After cache issues discovered, comprehensive upgrade scripts were created to handle:
-1. **Hardhat upgrades plugin cache issues** - Forces new implementation deployment
-2. **Library linking for VaultCore** - LPCalculations library must be deployed and linked
-3. **Proxy registration issues** - Direct upgradeToAndCall fallback when proxy not recognized
-4. **ClaimManager optimization** - Only redeploys when contract code changes
-
-#### Enhanced Upgrade Scripts:
-- **`scripts/upgradeAllFixed.js`** - Upgrades all contracts with comprehensive error handling
-- **`scripts/upgradeShareVaultFixed.js`** - Handles cache issues with forced redeployment
-- **`scripts/upgradeVaultCoreFixed.js`** - Includes LPCalculations library deployment and linking
-- **`scripts/upgradeSwapContractFixed.js`** - Cache-aware upgrade with fallback logic
-
-#### Usage:
-```bash
-# Clean cache and upgrade all contracts
-CLEAN_CACHE=true PROFILE=stable npx hardhat run scripts/upgradeAllFixed.js --network kairos
-
-# Individual upgrades with specific profile
-PROFILE=balanced npx hardhat run scripts/upgradeVaultCoreFixed.js --network kaia
-
-# Force cache cleaning before upgrade
-rm -rf .openzeppelin cache artifacts/build-info
-npx hardhat compile
 ```
 
-### Key Features & Achievements:
-- ✅ Contract size issue resolved with separated architecture
-- ✅ All security audit issues fixed (Critical & High risk)
-- ✅ Standard ERC4626 pattern implemented
-- ✅ WKAIA deposit state sync issue resolved
-- ✅ All LST deposits working correctly
-- ✅ GIVEN_OUT withdrawals implemented successfully
-- ✅ SwapContract handles all 4 LSTs uniformly
-- ✅ Integrated tests: 100% success rate
-- ✅ Sequential Swap with APY-based ordering
-- ✅ Depositor counting feature
-- ✅ LP token valuation with LST unwrap conversions
-- ✅ Enhanced upgrade scripts with cache handling
-- ✅ ClaimManager optimization (only redeploys when needed)
-- ✅ Production ready
+---
 
-## Important Configuration Notes
+## 📖 Documentation Reference
 
-### Current Settings:
-- **STABLE**: investRatio = 100% (all to LSTs, no WKAIA buffer)
-- **BALANCED**: investRatio = 100%, balancedRatio = 50% (50% LST, 50% LP)
-- **Slippage**: 10% default for testnet conditions
-- **Withdrawal Fees**: 0.3% (30 basis points)
+### Quick Links
 
-### Future Considerations:
-1. **LP Removal Optimization**: Consider optimizing LP removal to minimize unnecessary removals
-2. **Per-Block Limit Review**: Monitor mainnet usage patterns for multi-deposit needs
-3. **Slippage Adjustment**: Reduce to 5-10% for mainnet with better liquidity
+- **[README.md](./README.md)** - Project overview & quick start
+- **[docs/claude-history.md](./docs/claude-history.md)** - Historical issues & solutions
+- **[docs/deployment/](./docs/deployment/)** - Deployment & upgrade guides
+- **[docs/architecture/](./docs/architecture/)** - System design & investment strategies
+- **[docs/technical/](./docs/technical/)** - Implementation details
 
-## Testing
+### Key Technical Docs
 
-### Quick Test Commands:
-```bash
-# Test STABLE mode (testnet)
-npm run test:stable:testnet
+- [Deployment Guide](./docs/deployment/deployment-guide.md)
+- [Upgrade Guide](./docs/deployment/upgrade-guide.md)
+- [LP Calculation Logic](./docs/technical/lp-calculation-logic.md)
+- [Sequential Swap](./docs/technical/sequential-swap.md)
 
-# Test BALANCED mode (testnet)
-npm run test:balanced:testnet
+For Korean docs, append `-kr` to filename: `deployment-guide-kr.md`
 
-# Upgrade with cache handling (testnet)
-npm run upgrade:testnet:stable:fixed
-npm run upgrade:testnet:balanced:fixed
+---
+
+## 🔑 Key Concepts
+
+### Architecture: Separated Vault (V2)
+
+```
+User ←→ ShareVault (ERC-4626) ←→ VaultCore (LST management)
+                                       ↓
+                                  SwapContract (Balancer)
+                                       ↓
+                                  ClaimManager (Unstake/Claim)
 ```
 
-For more details on specific issues and their resolutions, refer to **[docs/claude-history.md](./docs/claude-history.md)**
+**Contracts**:
+- **ShareVault**: ERC-4626 compliant, manages user shares
+- **VaultCore**: Asset allocation across 4 LSTs + LP pools
+- **SwapContract**: Handles all Balancer swaps (FINALIZED)
+- **ClaimManager**: Processes unstake/claim via delegatecall
+
+### LST Tokens
+
+4 Liquid Staking Tokens integrated:
+1. **wKoKAIA** (Index 0) - Wrapped KoKAIA
+2. **wGCKAIA** (Index 1) - Wrapped GCKAIA
+3. **wstKLAY** (Index 2) - Wrapped stKLAY
+4. **stKAIA** (Index 3) - stKAIA (uses rate provider)
+
+**Note**: stKAIA is rebasing token - rate provider converts to KAIA equivalent.
+
+### Investment Profiles
+
+- **STABLE**: 100% to LST staking, 0% LP
+- **BALANCED**: 50% LST staking, 50% LP pools
+- **AGGRESSIVE**: Custom ratios (configurable)
+
+**Example (BALANCED)**:
+- investRatio = 100% (all WKAIA → LST)
+- balancedRatio = 50% (half of LST → LP)
+- Result: 50% stays as LST, 50% goes to LP
+
+---
+
+## ⚙️ Configuration
+
+### Deployment Files Structure
+
+```
+deployments/
+├── mainnet/
+│   ├── kaia-stable.json      # Mainnet STABLE profile
+│   └── kaia-balanced.json    # Mainnet BALANCED profile
+├── testnet/
+│   ├── kairos-stable.json    # Testnet STABLE profile
+│   ├── kairos-balanced.json  # Testnet BALANCED profile
+│   └── kairos-v1.json        # Legacy V1 deployment
+└── archive/
+    └── *.json                # Legacy deployment files
+```
+
+### Current Settings
+
+**STABLE Profile**:
+- investRatio: 100% (all to LSTs)
+- Liquidity buffer: 0%
+- Withdrawal fee: 0.3% (30 basis points)
+
+**BALANCED Profile**:
+- investRatio: 100%
+- balancedRatio: 50% (50% of LST → LP)
+- Liquidity buffer: 0%
+- Withdrawal fee: 0.3%
+
+---
+
+## 🎯 Quick Troubleshooting
+
+### Issue: Transaction fails with "Deposit failed"
+→ Check if you're using correct deposit function (WKAIA vs native KAIA)
+
+### Issue: Can't find deployment addresses
+→ Check `deployments/{network}/{profile}.json` files
+
+### Issue: Test script creating mess in root
+→ Always create in `scripts/temp/` first
+
+### Issue: Upgrade fails with cache errors
+→ Use `*Fixed.js` versions: `upgradeAllFixed.js`, `upgradeVaultCoreFixed.js`
+
+### Issue: Need to reference specific contract version
+→ Check git history or [docs/claude-history.md](./docs/claude-history.md)
+
+---
+
+## 📋 Checklist for New Features
+
+Before implementing:
+- [ ] Read this guide completely
+- [ ] Check [docs/claude-history.md](./docs/claude-history.md) for similar issues
+- [ ] Review existing implementations in `src/`
+- [ ] Create test script in `scripts/temp/`
+- [ ] Use deployment files, never hardcode addresses
+- [ ] Test on Kairos testnet first
+- [ ] Document any new patterns discovered
+
+---
+
+## 🚀 Recent Updates
+
+### 2025-09-03: LP Query Tools
+- Added `scripts/queryLPExit.js` - Query single-token exit values
+- Added `scripts/queryBPTSwap.js` - Query BPT→WKAIA swap rates
+
+### 2025-09-03: stKAIA Rate Provider Fix
+- VaultCore now correctly applies rate provider to direct stKAIA holdings
+
+### 2025-09-02: Enhanced Upgrade Scripts
+- Added `*Fixed.js` versions with cache handling
+- Improved library linking for VaultCore upgrades
+
+### 2025-08-14: SwapContract Finalized
+- All 4 LSTs tested successfully
+- Asset recovery functions added
+
+---
+
+**Last Updated**: 2026-01-22  
+**Maintainer**: Colligence Labs  
+**For detailed history**: See [docs/claude-history.md](./docs/claude-history.md)

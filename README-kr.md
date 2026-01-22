@@ -32,10 +32,16 @@ scripts/
 ├── recoverSwapAssets.js   # SwapContract 잔류 자산 회수
 └── tests/                 # 통합 테스트
 
+deployments/
+├── mainnet/               # 메인넷 배포 설정
+├── testnet/               # 테스트넷 배포 설정
+└── archive/               # 레거시 배포 파일
+
 docs/
-├── INVESTMENT_PROFILES.md # 투자 전략 문서
-├── BALANCED_STRATEGY.md   # Balancer 풀 통합
-└── archive/               # 과거 문서
+├── audit/                 # 감사 준비 문서
+├── deployment/            # 배포 및 업그레이드 가이드
+├── architecture/          # 시스템 설계 및 전략
+└── technical/             # 기술 구현 상세 문서
 ```
 
 ## 주요 기능
@@ -246,6 +252,26 @@ PROFILE=balanced npx hardhat run scripts/queryBPTSwap.js --network kaia
 - Composable Stable Pool의 비례 exit 대안
 - 단일 토큰 exit 가치와의 비교
 
+## 문서
+
+`docs/` 디렉토리에 체계적으로 정리된 문서를 제공합니다:
+
+### 📁 문서 구조
+- **[docs/audit/](./docs/audit/)** - 감사 준비 및 보안 문서
+- **[docs/deployment/](./docs/deployment/)** - 배포 및 업그레이드 가이드  
+- **[docs/architecture/](./docs/architecture/)** - 시스템 설계 및 투자 전략
+- **[docs/technical/](./docs/technical/)** - 기술 구현 상세 문서
+
+### 📚 주요 문서
+- [배포 가이드](./docs/deployment/deployment-guide-kr.md) - 컨트랙트 배포 방법
+- [업그레이드 가이드](./docs/deployment/upgrade-guide-kr.md) - 컨트랙트 업그레이드 절차
+- [감사 준비](./docs/audit/audit-readme-kr.md) - 보안 감사 체크리스트
+- [투자 프로필](./docs/architecture/investment-profiles.md) - 위험 프로필 설정
+- [LP 계산 로직](./docs/technical/lp-calculation-logic-kr.md) - LP 토큰 가치 평가
+- [Sequential Swap](./docs/technical/sequential-swap-kr.md) - 다중 LST 스왑 로직
+
+영문 문서는 `-kr` 접미사를 제거하여 확인할 수 있습니다 (예: `deployment-guide.md`).
+
 ## 중요 사항
 
 ⚠️ **SwapContract는 최종 완성됨**: SwapContract는 4개 LST 모두에 대해 철저히 테스트되었으며 수정해서는 안 됩니다.
@@ -259,7 +285,7 @@ PROFILE=balanced npx hardhat run scripts/queryBPTSwap.js --network kaia
 ⚠️ **LP 가치 계산 (2025-09-02 업데이트)**: 메인넷 6-토큰 풀에서 LP 가치 계산 시:
 - KoKAIA, GCKAIA, stKLAY: 언래핑된 수량만 사용 (rate provider 미사용)
 - stKAIA, sKLAY: Rate provider를 통한 KAIA 변환값 사용
-- 자세한 내용은 [LP 계산 로직 문서](./docs/LP_CALCULATION_LOGIC_KR.md) 참조
+- 자세한 내용은 [LP 계산 로직 문서](./docs/technical/lp-calculation-logic-kr.md) 참조
 
 ## 라이선스
 
