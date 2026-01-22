@@ -183,7 +183,9 @@ async function main() {
         aggressiveRatio: 0
     };
     
-    const filename = `deployments-balanced-${networkName}.json`;
+    const filename = networkName === 'kaia' || networkName === 'cypress'
+        ? `deployments/mainnet/${networkName === 'cypress' ? 'kaia' : networkName}-balanced.json`
+        : `deployments/testnet/${networkName}-balanced.json`;
     fs.writeFileSync(filename, JSON.stringify(newDeployments, null, 2));
     console.log(`   ✅ Deployment addresses saved to ${filename}`);
     

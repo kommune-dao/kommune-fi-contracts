@@ -32,10 +32,16 @@ scripts/
 ├── recoverSwapAssets.js   # Recover stranded assets from SwapContract
 └── tests/                 # Integration test suite
 
+deployments/
+├── mainnet/               # Mainnet deployment configs
+├── testnet/               # Testnet deployment configs
+└── archive/               # Legacy deployment files
+
 docs/
-├── INVESTMENT_PROFILES.md # Investment strategy documentation
-├── BALANCED_STRATEGY.md   # Balancer pool integration
-└── archive/               # Historical documentation
+├── audit/                 # Audit preparation documents
+├── deployment/            # Deployment and upgrade guides
+├── architecture/          # System design and strategy
+└── technical/             # Technical implementation details
 ```
 
 ## Features

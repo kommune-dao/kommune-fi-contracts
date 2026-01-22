@@ -63,7 +63,7 @@
 
 ## 📚 Historical Issues Reference
 
-For detailed historical issues and their resolutions, see **[CLAUDE_HISTORY.md](./CLAUDE_HISTORY.md)**
+For detailed historical issues and their resolutions, see **[docs/claude-history.md](./docs/claude-history.md)**
 
 Key resolved issues include:
 - queryBatchSwap smart contract limitations
@@ -395,4 +395,4 @@ npm run upgrade:testnet:stable:fixed
 npm run upgrade:testnet:balanced:fixed
 ```
 
-For more details on specific issues and their resolutions, refer to **[CLAUDE_HISTORY.md](./CLAUDE_HISTORY.md)**
+For more details on specific issues and their resolutions, refer to **[docs/claude-history.md](./docs/claude-history.md)**
