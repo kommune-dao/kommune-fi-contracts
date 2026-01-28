@@ -30,3 +30,6 @@ contracts/artifacts
 
 # Log files
 *.log
+
+# Archives
+_archive/

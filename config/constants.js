@@ -3,7 +3,7 @@ const { ChainId } = require("./config");
 const contracts = {
   wkaia: {
     [ChainId.KAIA]: "0x19Aac5f612f524B754CA7e7c41cbFa2E981A4432",
-    [ChainId.KAIROS]: "0x0339d5Eb6D195Ba90B13ed1BCeAa97EbD198b106",
+    [ChainId.KAIROS]: "0x043c471bEe060e00A56CcD02c0Ca286808a5A436",
   },
   koKaia: {
     [ChainId.KAIA]: "0xa1338309658d3da331c747518d0bb414031f22fd",
@@ -41,25 +41,37 @@ const contracts = {
     [ChainId.KAIA]: "0xfbf389be9ef4ced3a95bdc2a6fc94b81c8e374a3", // Kommune DAO
     [ChainId.KAIROS]: "0xdc926E34E73292cD7c48c6fD7375af7D93435D36", // wallet1 for testing
   },
+  dragonSwapRouter: {
+    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIROS]: "0x32D20305f3AcA8ab3b901179553D8f8D0371a7E8",
+  },
+  dragonSwapPositionManager: {
+    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIROS]: "0xC3F3702FAC2D4478548093713A45E74849144a1e",
+  },
+  dragonSwapPools: { // WKAIA/KoKAIA
+    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIROS]: "0x2D3d0184Ddf6128FaEBB0803CA8cfB6415aC6990", // 0.01% Fee
+  }
 };
 
 const handlers = {
-    koKaia: {
-        [ChainId.KAIA]: "0xa1338309658d3da331c747518d0bb414031f22fd",
-        [ChainId.KAIROS]: "0xb15782EFbC2034E366670599F3997f94c7333FF9",
-    },
-    gcKaia: {
-        [ChainId.KAIA]: "0x999999999939Ba65AbB254339eEc0b2A0daC80E9",
-        [ChainId.KAIROS]: "0xe4c732f651B39169648A22F159b815d8499F996c",
-    },
-    stKlay: {
-        [ChainId.KAIA]: "0xF80F2b22932fCEC6189b9153aA18662b15CC9C00",
-        [ChainId.KAIROS]: "0x28B13a88E72a2c8d6E93C28dD39125705d78E75F",
-    },
-    stKaia: {
-        [ChainId.KAIA]: "0x42952B873ed6f7f0A7E4992E2a9818E3A9001995",
-        [ChainId.KAIROS]: "0x4C0d434C7DD74491A52375163a7b724ED387d0b6",
-    }
+  koKaia: {
+    [ChainId.KAIA]: "0xa1338309658d3da331c747518d0bb414031f22fd",
+    [ChainId.KAIROS]: "0xb15782EFbC2034E366670599F3997f94c7333FF9",
+  },
+  gcKaia: {
+    [ChainId.KAIA]: "0x999999999939Ba65AbB254339eEc0b2A0daC80E9",
+    [ChainId.KAIROS]: "0xe4c732f651B39169648A22F159b815d8499F996c",
+  },
+  stKlay: {
+    [ChainId.KAIA]: "0xF80F2b22932fCEC6189b9153aA18662b15CC9C00",
+    [ChainId.KAIROS]: "0x28B13a88E72a2c8d6E93C28dD39125705d78E75F",
+  },
+  stKaia: {
+    [ChainId.KAIA]: "0x42952B873ed6f7f0A7E4992E2a9818E3A9001995",
+    [ChainId.KAIROS]: "0x4C0d434C7DD74491A52375163a7b724ED387d0b6",
+  }
 };
 
 const basisPointsFees = 1000; // 10%

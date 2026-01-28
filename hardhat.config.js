@@ -49,6 +49,13 @@ module.exports = {
     artifacts: "./artifacts",
   },
   networks: {
+    hardhat: {
+      chainId: 1001,
+      forking: {
+        url: "https://public-en-kairos.node.kaia.io",
+        enabled: false
+      }
+    },
     kaia: {
       url: "https://klaytn-en.kommunedao.xyz:8651",
       chainId: 8217,
@@ -56,7 +63,7 @@ module.exports = {
       timeout: 1800000, // 30 minutes
     },
     kairos: {
-      url: "https://responsive-green-emerald.kaia-kairos.quiknode.pro", // QuickNode - rate limited
+      url: "https://rpc.ankr.com/klaytn_testnet", // Ankr Public RPC
       // url: "https://public-en-kairos.node.kaia.io", // Official Kairos RPC
       chainId: 1001,
       accounts: [KAIROS_PRIVATE_KEY],
