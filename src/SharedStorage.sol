@@ -20,8 +20,8 @@ contract SharedStorage {
     // ========== CORE ADDRESSES (slots 0-4) ==========
     address public shareVault;       // slot 0
     address public wkaia;            // slot 1
-    address public balancerVault;    // slot 2
-    address public swapContract;     // slot 3
+    address public __gap_legacy_balancerVault;    // slot 2 (reserved/deprecated)
+    address public dragonSwapHandler;     // slot 3 (formerly swapContract)
     address public claimManager;     // slot 4
     
     // ========== LST CONFIGURATION (slots 5-6) ==========
@@ -47,8 +47,9 @@ contract SharedStorage {
     uint256 public aggressiveRatio; // slot 13 - % of LSTs to add to pool2 for LP tokens
     
     // ========== BALANCER LP TRACKING (slots 15-16) ==========
-    uint256 public lpBalance;           // slot 15 - Total BPT balance (all LSTs share same pool)
-    address public lpToken;             // slot 16 - BPT token address
+    // These variables are kept to preserve storage layout for upgradeability
+    uint256 public __gap_legacy_lpBalance;           // slot 15 (reserved/deprecated)
+    address public __gap_legacy_lpToken;             // slot 16 (reserved/deprecated)
     
     // ========== NETWORK CONFIGURATION (slot 17) ==========
     bool public isMainnet;              // slot 17 - true for mainnet (6-token pool), false for testnet (5-token pool)
@@ -60,5 +61,8 @@ contract SharedStorage {
     // Example: uint256 public newVariable; // slot 18
     //          uint256[32] private __gap;  // reduced from 33
     
-    uint256[33] private __gap;  // Reserve slots 18-50 for future variables
+    // ========== DRAGONSWAP LP TRACKING (slot 18) ==========
+    mapping(uint256 => uint256) public lpTokenIds;  // slot 18 - lstIndex => tokenId (NFT Position ID)
+
+    uint256[32] private __gap;  // Reserve slots 19-50 for future variables
 }

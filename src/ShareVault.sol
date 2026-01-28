@@ -23,9 +23,11 @@ interface IVaultCore {
 
 /**
  * @title ShareVault
- * @dev ERC-4626 implementation for share management
- * This contract handles all share-related logic (deposit/withdraw/mint/redeem)
- * Actual asset management is delegated to VaultCore
+ * @notice The user-facing entry point for the Kommune Vault (ERC-4626 standard).
+ * @dev Handles all Share (ERC20) logic: Minting, Burning, and Accounting.
+ *      - User funds are forwarded to `VaultCore` for management.
+ *      - `VaultCore` is the only entity authorized to send funds back for withdrawals.
+ * @custom:security The `vaultCore` address is critical. If compromised, funds can be drained.
  */
 contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
@@ -105,9 +107,42 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
     }
     
     /**
+     * @dev Internal helper to process deposit logic
+     */
+    function _processDeposit(uint256 assets, uint256 shares, address receiver, address caller) internal {
+        require(deposits[caller].amount + assets <= depositLimit, "Limit exceeded");
+        require(block.number > lastDepositBlock[caller], "Same block");
+        require(vaultCore != address(0), "VaultCore not set");
+        
+        // Pull WKAIA from user to ShareVault
+        IERC20(asset()).transferFrom(caller, address(this), assets);
+        
+        // Transfer WKAIA to VaultCore
+        IERC20(asset()).transfer(vaultCore, assets);
+        
+        // Update tracking
+        lastDepositBlock[caller] = block.number;
+        
+        // Track new depositors
+        if (deposits[caller].amount == 0) {
+            totalDepositors++;
+        }
+        
+        deposits[caller].amount += assets;
+        deposits[caller].timestamp = block.timestamp;
+        
+        // Call VaultCore to handle deposit
+        bool success = IVaultCore(vaultCore).handleDeposit(assets, caller);
+        require(success, "Core deposit failed");
+        
+        // Mint shares
+        _mint(receiver, shares);
+        
+        emit Deposit(caller, receiver, assets, shares);
+    }
+
+    /**
      * @dev Deposit assets and receive shares (Standard ERC4626 Pattern)
-     * User must approve WKAIA to ShareVault first, then call this function
-     * This prevents front-running attacks by using standard pull pattern
      */
     function deposit(uint256 assets, address receiver) 
         public 
@@ -117,178 +152,15 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         returns (uint256 shares) 
     {
         require(assets > 0, "Zero amount");
-        require(deposits[msg.sender].amount + assets <= depositLimit, "Limit exceeded");
-        require(block.number > lastDepositBlock[msg.sender], "Same block");
-        require(vaultCore != address(0), "VaultCore not set");
-        
-        // Calculate shares before transfer
         shares = previewDeposit(assets);
         require(shares > 0, "Zero shares");
         
-        // Pull WKAIA from user to ShareVault
-        IERC20(asset()).transferFrom(msg.sender, address(this), assets);
-        
-        // Transfer WKAIA to VaultCore
-        IERC20(asset()).transfer(vaultCore, assets);
-        
-        // Update tracking
-        lastDepositBlock[msg.sender] = block.number;
-        
-        // Track new depositors
-        if (deposits[msg.sender].amount == 0) {
-            totalDepositors++;
-        }
-        
-        deposits[msg.sender].amount += assets;
-        deposits[msg.sender].timestamp = block.timestamp;
-        
-        // Call VaultCore to handle deposit
-        bool success = IVaultCore(vaultCore).handleDeposit(assets, msg.sender);
-        require(success, "Core deposit failed");
-        
-        // Mint shares
-        _mint(receiver, shares);
-        
-        emit Deposit(msg.sender, receiver, assets, shares);
-        return shares;
-    }
-    
-    /**
-     * @dev Withdraw assets by burning shares (standard ERC4626, no provider)
-     */
-    function withdraw(uint256 assets, address receiver, address owner)
-        public
-        virtual
-        override
-        returns (uint256 shares)
-    {
-        // Call withdrawWithProvider with address(0) for backward compatibility
-        return withdrawWithProvider(assets, receiver, owner, address(0));
-    }
-    
-    /**
-     * @dev Withdraw assets with provider fee sharing
-     * @param assets Amount of assets to withdraw
-     * @param receiver Address to receive the assets
-     * @param owner Address of the share owner
-     * @param provider Provider address for fee sharing (1/3 of fee goes to provider if valid)
-     */
-    function withdrawWithProvider(uint256 assets, address receiver, address owner, address provider)
-        public
-        nonReentrant
-        returns (uint256 shares)
-    {
-        require(assets > 0, "Zero amount");
-        
-        // Calculate shares needed
-        shares = previewWithdraw(assets);
-        
-        // Check allowance if not owner
-        if (msg.sender != owner) {
-            _spendAllowance(owner, msg.sender, shares);
-        }
-        
-        // Calculate fee and net amount
-        uint256 feeAmount = 0;
-        uint256 netAssets = assets;
-        uint256 providerFee = 0;
-        uint256 treasuryFee = 0;
-        
-        if (basisPointsFees > 0 && treasury != address(0)) {
-            feeAmount = (assets * basisPointsFees) / 10000;
-            netAssets = assets - feeAmount;
-            
-            // Split fee if provider is valid
-            if (provider != address(0) && isProvider[provider]) {
-                providerFee = feeAmount / 3;  // 1/3 to provider
-                treasuryFee = feeAmount - providerFee;  // 2/3 to treasury
-            } else {
-                treasuryFee = feeAmount;  // All to treasury
-            }
-        }
-        
-        // Request total assets (including fee) from VaultCore
-        // VaultCore will send KAIA back to ShareVault
-        if (vaultCore != address(0)) {
-            uint256 kaiaBefore = address(this).balance;
-            
-            (bool success,) = vaultCore.call(
-                abi.encodeWithSignature("handleWithdraw(uint256,address)", assets, address(this))
-            );
-            require(success, "Core withdraw failed");
-            
-            // Check if we received KAIA
-            uint256 kaiaReceived = address(this).balance - kaiaBefore;
-            require(kaiaReceived == assets, "Incorrect KAIA amount received");
-            
-            // Transfer fees in KAIA
-            if (providerFee > 0) {
-                (bool providerSent, ) = provider.call{value: providerFee}("");
-                require(providerSent, "Provider fee transfer failed");
-            }
-            if (treasuryFee > 0) {
-                (bool treasurySent, ) = treasury.call{value: treasuryFee}("");
-                require(treasurySent, "Treasury fee transfer failed");
-            }
-            
-            // Transfer net amount to receiver in KAIA
-            (bool receiverSent, ) = receiver.call{value: netAssets}("");
-            require(receiverSent, "KAIA transfer to receiver failed");
-        } else {
-            // Fallback: transfer WKAIA from this contract (shouldn't happen normally)
-            // First unwrap WKAIA to KAIA if we have any
-            uint256 wkaiaBalance = IERC20(asset()).balanceOf(address(this));
-            if (wkaiaBalance >= assets) {
-                IWKaia(asset()).withdraw(assets);
-                
-                // Transfer fees in KAIA
-                if (providerFee > 0) {
-                    (bool providerSent, ) = provider.call{value: providerFee}("");
-                    require(providerSent, "Provider fee transfer failed");
-                }
-                if (treasuryFee > 0) {
-                    (bool treasurySent, ) = treasury.call{value: treasuryFee}("");
-                    require(treasurySent, "Treasury fee transfer failed");
-                }
-                
-                // Transfer net amount to receiver in KAIA
-                (bool receiverSent, ) = receiver.call{value: netAssets}("");
-                require(receiverSent, "KAIA transfer to receiver failed");
-            } else {
-                revert("Insufficient balance");
-            }
-        }
-        
-        // Burn shares
-        _burn(owner, shares);
-        
-        // Update deposit tracking
-        if (deposits[owner].amount >= assets) {
-            deposits[owner].amount -= assets;
-        } else {
-            deposits[owner].amount = 0;
-        }
-        
-        // Decrease depositor count if fully withdrawn (check shares, not deposit amount)
-        // Using shares is more accurate as deposit amount might have rounding dust
-        if (balanceOf(owner) == 0 && totalDepositors > 0) {
-            totalDepositors--;
-            deposits[owner].amount = 0; // Clean up any dust
-        }
-        
-        // Emit appropriate event
-        if (provider != address(0) && isProvider[provider]) {
-            emit WithdrawWithProvider(msg.sender, receiver, owner, assets, shares, provider, providerFee);
-        } else {
-            emit Withdraw(msg.sender, receiver, owner, assets, shares);
-        }
-        
+        _processDeposit(assets, shares, receiver, msg.sender);
         return shares;
     }
     
     /**
      * @dev Mint shares by depositing assets (Direct Deposit Pattern)
-     * User must first transfer WKAIA directly to VaultCore, then call this function
      */
     function mint(uint256 shares, address receiver)
         public
@@ -298,69 +170,27 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         returns (uint256 assets)
     {
         require(shares > 0, "Zero shares");
-        require(vaultCore != address(0), "VaultCore not set");
-        
-        // Calculate assets needed
         assets = previewMint(shares);
-        require(deposits[msg.sender].amount + assets <= depositLimit, "Limit exceeded");
-        require(block.number > lastDepositBlock[msg.sender], "Same block");
-        
-        // Pull WKAIA from user to ShareVault first, then transfer to VaultCore
-        // This two-step process may help with WKAIA state sync issues
-        IERC20(asset()).transferFrom(msg.sender, address(this), assets);
-        IERC20(asset()).transfer(vaultCore, assets);
-        
-        // Update tracking
-        lastDepositBlock[msg.sender] = block.number;
-        deposits[msg.sender].amount += assets;
-        deposits[msg.sender].timestamp = block.timestamp;
-        
-        // Notify VaultCore to process the deposit
-        (bool success,) = vaultCore.call(
-            abi.encodeWithSignature("handleDeposit(uint256,address)", assets, msg.sender)
-        );
-        require(success, "Core deposit failed");
-        
-        // Mint shares
-        _mint(receiver, shares);
-        
-        emit Deposit(msg.sender, receiver, assets, shares);
+        require(assets > 0, "Zero assets");
+
+        _processDeposit(assets, shares, receiver, msg.sender);
         return assets;
     }
-    
+
     /**
-     * @dev Redeem shares for assets (standard ERC4626, no provider)
+     * @dev Internal helper to execute withdrawal logic
      */
-    function redeem(uint256 shares, address receiver, address owner)
-        public
-        virtual
-        override
-        returns (uint256 assets)
-    {
-        // Call redeemWithProvider with address(0) for backward compatibility
-        return redeemWithProvider(shares, receiver, owner, address(0));
-    }
-    
-    /**
-     * @dev Redeem shares with provider fee sharing
-     * @param shares Amount of shares to redeem
-     * @param receiver Address to receive the assets
-     * @param owner Address of the share owner
-     * @param provider Provider address for fee sharing (1/3 of fee goes to provider if valid)
-     */
-    function redeemWithProvider(uint256 shares, address receiver, address owner, address provider)
-        public
-        nonReentrant
-        returns (uint256 assets)
-    {
-        require(shares > 0, "Zero shares");
-        
-        // Calculate assets to return
-        assets = previewRedeem(shares);
-        
+    function _executeWithdrawal(
+        uint256 assets, 
+        uint256 shares, 
+        address receiver, 
+        address owner, 
+        address provider,
+        address caller
+    ) internal {
         // Check allowance if not owner
-        if (msg.sender != owner) {
-            _spendAllowance(owner, msg.sender, shares);
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
         }
         
         // Calculate fee and net amount
@@ -383,7 +213,6 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         }
         
         // Request total assets (including fee) from VaultCore
-        // VaultCore will send KAIA back to ShareVault
         if (vaultCore != address(0)) {
             uint256 kaiaBefore = address(this).balance;
             
@@ -410,23 +239,20 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
             (bool receiverSent, ) = receiver.call{value: netAssets}("");
             require(receiverSent, "KAIA transfer to receiver failed");
         } else {
-            // Fallback: transfer WKAIA from this contract (shouldn't happen normally)
-            // First unwrap WKAIA to KAIA if we have any
+            // Fallback: transfer WKAIA from this contract
             uint256 wkaiaBalance = IERC20(asset()).balanceOf(address(this));
             if (wkaiaBalance >= assets) {
                 IWKaia(asset()).withdraw(assets);
                 
-                // Transfer fees in KAIA
                 if (providerFee > 0) {
-                    (bool providerSent, ) = provider.call{value: providerFee}("");
-                    require(providerSent, "Provider fee transfer failed");
+                     (bool providerSent, ) = provider.call{value: providerFee}("");
+                     require(providerSent, "Provider fee transfer failed");
                 }
                 if (treasuryFee > 0) {
-                    (bool treasurySent, ) = treasury.call{value: treasuryFee}("");
-                    require(treasurySent, "Treasury fee transfer failed");
+                     (bool treasurySent, ) = treasury.call{value: treasuryFee}("");
+                     require(treasurySent, "Treasury fee transfer failed");
                 }
                 
-                // Transfer net amount to receiver in KAIA
                 (bool receiverSent, ) = receiver.call{value: netAssets}("");
                 require(receiverSent, "KAIA transfer to receiver failed");
             } else {
@@ -444,20 +270,67 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
             deposits[owner].amount = 0;
         }
         
-        // Decrease depositor count if fully withdrawn (check shares, not deposit amount)
-        // Using shares is more accurate as deposit amount might have rounding dust
         if (balanceOf(owner) == 0 && totalDepositors > 0) {
             totalDepositors--;
-            deposits[owner].amount = 0; // Clean up any dust
+            deposits[owner].amount = 0;
         }
         
-        // Emit appropriate event
         if (provider != address(0) && isProvider[provider]) {
-            emit WithdrawWithProvider(msg.sender, receiver, owner, assets, shares, provider, providerFee);
+            emit WithdrawWithProvider(caller, receiver, owner, assets, shares, provider, providerFee);
         } else {
-            emit Withdraw(msg.sender, receiver, owner, assets, shares);
+            emit Withdraw(caller, receiver, owner, assets, shares);
         }
-        
+    }
+    
+    /**
+     * @dev Withdraw assets by burning shares (Standard ERC4626)
+     */
+    function withdraw(uint256 assets, address receiver, address owner)
+        public
+        virtual
+        override
+        returns (uint256 shares)
+    {
+        return withdrawWithProvider(assets, receiver, owner, address(0));
+    }
+    
+    /**
+     * @dev Withdraw assets with provider fee sharing
+     */
+    function withdrawWithProvider(uint256 assets, address receiver, address owner, address provider)
+        public
+        nonReentrant
+        returns (uint256 shares)
+    {
+        require(assets > 0, "Zero amount");
+        shares = previewWithdraw(assets);
+        _executeWithdrawal(assets, shares, receiver, owner, provider, msg.sender);
+        return shares;
+    }
+    
+    /**
+     * @dev Redeem shares for assets (Standard ERC4626)
+     */
+    function redeem(uint256 shares, address receiver, address owner)
+        public
+        virtual
+        override
+        returns (uint256 assets)
+    {
+        return redeemWithProvider(shares, receiver, owner, address(0));
+    }
+    
+    /**
+     * @dev Redeem shares with provider fee sharing
+     */
+    function redeemWithProvider(uint256 shares, address receiver, address owner, address provider)
+        public
+        nonReentrant
+        returns (uint256 assets)
+    {
+        require(shares > 0, "Zero shares");
+        assets = previewRedeem(shares);
+        _executeWithdrawal(assets, shares, receiver, owner, provider, msg.sender);
         return assets;
     }
     
@@ -467,7 +340,6 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
     receive() external payable {
         // Only accept KAIA from VaultCore
         require(msg.sender == vaultCore, "Only VaultCore");
-        // KAIA will be distributed directly to users/treasury/providers
     }
     
     /**
@@ -479,33 +351,33 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         require(block.number > lastDepositBlock[msg.sender], "Same block");
         
         uint256 assets = msg.value;
-        
-        // Calculate shares
         shares = previewDeposit(assets);
         require(shares > 0, "Zero shares");
         
         // Update tracking
         lastDepositBlock[msg.sender] = block.number;
-        
-        // Track new depositors
-        if (deposits[msg.sender].amount == 0) {
-            totalDepositors++;
-        }
-        
+        if (deposits[msg.sender].amount == 0) totalDepositors++;
         deposits[msg.sender].amount += assets;
         deposits[msg.sender].timestamp = block.timestamp;
         
-        // Send KAIA to VaultCore for management
+        // Send KAIA to VaultCore
         if (vaultCore != address(0)) {
-            (bool success,) = vaultCore.call{value: assets}(
+            (bool success, bytes memory data) = vaultCore.call{value: assets}(
                 abi.encodeWithSignature("handleDepositKAIA()")
             );
-            require(success, "Core KAIA deposit failed");
+            if (!success) {
+                if (data.length > 0) {
+                    assembly {
+                        let returndata_size := mload(data)
+                        revert(add(32, data), returndata_size)
+                    }
+                } else {
+                    revert("Core KAIA deposit failed");
+                }
+            }
         }
         
-        // Mint shares
         _mint(receiver, shares);
-        
         emit Deposit(msg.sender, receiver, assets, shares);
         return shares;
     }

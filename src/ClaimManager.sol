@@ -3,17 +3,17 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IKoKaia.sol";
-import "./interfaces/IGcKaia.sol";
-import "./interfaces/IStKaia.sol";
-import "./interfaces/IStKlay.sol";
 import {TokenInfo} from "./interfaces/ITokenInfo.sol";
 import {SharedStorage} from "./SharedStorage.sol";
 
 /**
  * @title ClaimManager
- * @dev Handles unstake and claim operations for VaultCore via delegatecall
+ * @notice Manages the unstaking and claiming process for the Vault.
+ * @dev Handles logic for KoKAIA (Index 0) withdrawals via `delegatecall` from VaultCore.
+ *      - Index 0: KoKAIA -> Unstake -> Claim (7 day delay).
+ *      - Legacy Indices (1, 2, 3) are removed/unsupported.
  * 
- * CRITICAL: Inherits from SharedStorage to ensure identical storage layout with VaultCore
+ * @custom:security CRITICAL: Inherits from SharedStorage to ensure identical storage layout with VaultCore
  * for safe delegatecall operations. NEVER add storage variables here.
  */
 contract ClaimManager is SharedStorage {
@@ -27,7 +27,7 @@ contract ClaimManager is SharedStorage {
     address internal constant BugHole = 0x1856E6fDbF8FF701Fa1aB295E1bf229ABaB56899;
     
     function executeUnstake(address user, uint256 index, uint256 amount) external returns (bool) {
-        require(index < 4, "Invalid index");
+        require(index == 0, "Invalid index"); // Only KoKAIA supported
         require(amount > 0, "Amount must be positive");
         
         TokenInfo memory info = tokensInfo[index];
@@ -39,21 +39,8 @@ contract ClaimManager is SharedStorage {
         // Approve if needed
         IERC20(info.asset).approve(info.handler, amount);
         
-        if (index == 0) {
-            // KoKaia
-            IKoKaia(info.handler).unstake(amount);
-        } else if (index == 1) {
-            // GcKaia
-            IGcKaia(info.handler).unstake(amount);
-        } else if (index == 2) {
-            // StKlay
-            IStKlay(info.handler).unstake(amount);
-        } else {
-            // StKaia
-            // Use address(this) instead of tx.origin for security
-            // In delegatecall context, address(this) is VaultCore
-            IStKaia(info.handler).unstake(BugHole, address(this), amount);
-        }
+        // KoKaia only
+        IKoKaia(info.handler).unstake(amount);
         
         // Record request
         unstakeRequests[user][index] = block.timestamp;
@@ -76,24 +63,6 @@ contract ClaimManager is SharedStorage {
             // KoKaia - claim to VaultCore
             uint256 before = address(this).balance;
             IKoKaia(info.handler).claim(address(this));
-            claimedAmount = address(this).balance - before;
-        } else if (index == 1) {
-            // GcKaia
-            uint256 before = address(this).balance;
-            try IGcKaia(info.handler).claim(0) {} catch {}
-            claimedAmount = address(this).balance - before;
-        } else if (index == 2) {
-            // StKlay
-            uint256 before = address(this).balance;
-            IStKlay(info.handler).claim(user);
-            claimedAmount = address(this).balance - before;
-        } else {
-            // StKaia
-            uint256 before = address(this).balance;
-            uint256 count = IStKaia(info.handler).getUnstakeRequestInfoLength(user);
-            for (uint256 i = 0; i < count; i++) {
-                try IStKaia(info.handler).claim(user, i) {} catch {}
-            }
             claimedAmount = address(this).balance - before;
         }
         
