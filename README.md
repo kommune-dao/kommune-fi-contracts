@@ -1,8 +1,21 @@
-# KommuneFi Contracts ERC20
+# kommune-fi-contracts
+
+## Project Overview
+
+Multi-LST yield optimization vault contracts for Kaia. Tech stack: Solidity, Hardhat.
 
 Multi-LST yield optimization vault with automated staking strategies on KAIA blockchain.
 
+## Quick Start
+
+```bash
+npm install
+npx hardhat compile
+npx hardhat test
+```
+
 ## 🔒 Audit Status
+
 **Ready for external audit** - All critical and high-risk issues resolved.
 
 ## Project Structure
@@ -35,7 +48,7 @@ scripts/
 deployments/
 ├── mainnet/               # Mainnet deployment configs
 ├── testnet/               # Testnet deployment configs
-└── archive/               # Legacy deployment files
+├── archive/               # Legacy deployment files
 
 docs/
 ├── audit/                 # Audit preparation documents
@@ -198,90 +211,6 @@ npx hardhat run scripts/recoverSwapAssets.js --network kaia
 
 **Recommended Schedule**: Weekly or after any reported swap failures
 
-The script will:
-1. Check all token balances in SwapContract
-2. Report any stranded assets found
-3. Recover them to VaultCore (owner-only operation)
-4. Verify successful recovery
+## Agent Guide
 
-### LP Token Valuation Tools
-
-#### Query LP Exit Values
-Analyze LP token values and potential exit amounts using Balancer's queryExit:
-
-```bash
-# Query with VaultCore's current LP balance
-npx hardhat run scripts/queryLPExit.js --network kaia
-
-# Query with custom LP amount
-LP_AMOUNT=10 npx hardhat run scripts/queryLPExit.js --network kaia
-
-# Query specific token exit (wstKLAY, stKAIA, SKLAY, wGCKAIA, wKoKAIA)
-EXIT_TOKEN=stKAIA npx hardhat run scripts/queryLPExit.js --network kaia
-
-# Query all tokens (default)
-EXIT_TOKEN=all npx hardhat run scripts/queryLPExit.js --network kaia
-
-# Specify profile (stable/balanced)
-PROFILE=balanced npx hardhat run scripts/queryLPExit.js --network kaia
-```
-
-The script provides:
-- Single-token exit values for each LST
-- Unwrapped KAIA values with rate provider calculations
-- Average KAIA value and per-BPT rates
-- Comparison with internal LP calculations
-
-#### Query BPT to WKAIA Swap
-Check BPT→WKAIA swap rates through the dedicated Balancer pool:
-
-```bash
-# Query with VaultCore's current BPT balance
-npx hardhat run scripts/queryBPTSwap.js --network kaia
-
-# Query with custom BPT amount
-BPT_AMOUNT=10 npx hardhat run scripts/queryBPTSwap.js --network kaia
-
-# Specify profile (stable/balanced)
-PROFILE=balanced npx hardhat run scripts/queryBPTSwap.js --network kaia
-```
-
-The script provides:
-- Direct BPT→WKAIA swap rates
-- Exchange rate calculations (WKAIA/BPT)
-- Alternative to proportional exits for Composable Stable Pools
-- Comparison with single-token exit values
-
-## Documentation
-
-Comprehensive documentation is organized in the `docs/` directory:
-
-### 📁 Documentation Structure
-- **[docs/audit/](./docs/audit/)** - Audit preparation and security documentation
-- **[docs/deployment/](./docs/deployment/)** - Deployment and upgrade guides  
-- **[docs/architecture/](./docs/architecture/)** - System design and investment strategies
-- **[docs/technical/](./docs/technical/)** - Technical implementation details
-
-### 📚 Key Documents
-- [Deployment Guide](./docs/deployment/deployment-guide.md) - How to deploy contracts
-- [Upgrade Guide](./docs/deployment/upgrade-guide.md) - Contract upgrade procedures
-- [Audit Preparation](./docs/audit/audit-readme.md) - Security audit checklist
-- [Investment Profiles](./docs/architecture/investment-profiles.md) - Risk profile configurations
-- [LP Calculation Logic](./docs/technical/lp-calculation-logic.md) - LP token valuation
-- [Sequential Swap](./docs/technical/sequential-swap.md) - Multi-LST swap logic
-
-For Korean documentation, append `-kr` to the filename (e.g., `deployment-guide-kr.md`).
-
-## Important Notes
-
-⚠️ **SwapContract is FINALIZED**: The SwapContract has been thoroughly tested with all 4 LSTs and should NOT be modified.
-
-⚠️ **Asset Recovery**: SwapContract now includes `returnAssetsToVault()` function for recovering stranded tokens (requires upgrade).
-
-⚠️ **Use V2 Architecture**: The separated vault architecture (ShareVault + VaultCore) is the recommended deployment.
-
-⚠️ **WKAIA Deposit Pattern**: Due to WKAIA state sync issues, deposits now convert WKAIA to KAIA in ShareVault before sending to VaultCore.
-
-## License
-
-MIT
+Root agent guide: `CLAUDE.md` (repo root).

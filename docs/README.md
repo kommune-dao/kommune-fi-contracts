@@ -29,6 +29,7 @@ docs/
 
 - [deployment-guide.md](deployment/deployment-guide.md) - 배포 가이드 (영문)
 - [deployment-guide-kr.md](deployment/deployment-guide-kr.md) - 배포 가이드 (한글)
+- [deployments.md](deployment/deployments.md) - 배포 현황 (Kairos + Mainnet)
 - [upgrade-guide.md](deployment/upgrade-guide.md) - 업그레이드 가이드 (영문)
 - [upgrade-guide-kr.md](deployment/upgrade-guide-kr.md) - 업그레이드 가이드 (한글)
 
