@@ -57,7 +57,7 @@ module.exports = {
       }
     },
     kaia: {
-      url: "https://klaytn-en.kommunedao.xyz:8651",
+      url: "https://public-en.node.kaia.io",
       chainId: 8217,
       accounts: [KAIA_PRIVATE_KEY],
       timeout: 1800000, // 30 minutes

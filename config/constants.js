@@ -42,15 +42,15 @@ const contracts = {
     [ChainId.KAIROS]: "0xdc926E34E73292cD7c48c6fD7375af7D93435D36", // wallet1 for testing
   },
   dragonSwapRouter: {
-    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIA]: "0xA324880f884036E3d21a09B90269E1aC57c7EC8a", // V3 SwapRouter (supports exactOutputSingle)
     [ChainId.KAIROS]: "0x32D20305f3AcA8ab3b901179553D8f8D0371a7E8",
   },
   dragonSwapPositionManager: {
-    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIA]: "0x68f762d28CebaD501c090949e4680697e56848fC",
     [ChainId.KAIROS]: "0xC3F3702FAC2D4478548093713A45E74849144a1e",
   },
   dragonSwapPools: { // WKAIA/KoKAIA
-    [ChainId.KAIA]: "0x0000000000000000000000000000000000000000", // TODO: Update for Mainnet
+    [ChainId.KAIA]: "0x0bb457f4739dadf707668ae4fd3d5d530568d56d", // 0.1% Fee
     [ChainId.KAIROS]: "0x2D3d0184Ddf6128FaEBB0803CA8cfB6415aC6990", // 0.01% Fee
   }
 };
