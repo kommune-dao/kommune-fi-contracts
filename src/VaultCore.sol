@@ -8,6 +8,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IWKaia} from "./interfaces/IWKaia.sol";
 import {TokenInfo} from "./interfaces/ITokenInfo.sol";
 import {DragonSwapHandler} from "./DragonSwapHandler.sol";
+import {INonfungiblePositionManager, IUniswapV3Pool} from "./interfaces/IDragonSwap.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IWrappedLST} from "./interfaces/IWrappedLST.sol";
 import {IKoKaia} from "./interfaces/IKoKaia.sol";
 import {SharedStorage} from "./SharedStorage.sol";
@@ -45,6 +47,7 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     event AgentStKaiaPurchased(uint256 kokaiaSpent, uint256 stKaiaReceived);
     event AgentUnstakeRequested(uint256 stKaiaAmount, uint256 requestId);
     event AgentUnstakeClaimed(uint256 requestId, uint256 kaiaReceived);
+    event InstantWithdrawExecuted(address indexed recipient, uint256 grossAmount, uint256 fee, uint256 netAmount);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -125,36 +128,65 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     /**
      * @dev Get total assets managed by this vault (KoKAIA + WKAIA + LP)
      */
-    function getTotalAssets() external view returns (uint256 total) {
+    function getTotalAssets() external view returns (uint256) {
+        return _getTotalAssets();
+    }
+
+    /**
+     * @dev Internal version for use by other functions (e.g. proportional LP removal).
+     *      Includes LP valuation via pool sqrtPriceX96.
+     */
+    function _getTotalAssets() internal view returns (uint256 total) {
         // Native KAIA
         total = address(this).balance;
-        
+
         // WKAIA
         if (wkaia != address(0)) {
             total += IERC20(wkaia).balanceOf(address(this));
         }
-        
+
         // KoKAIA (Asset)
         if (tokensInfo[0].asset != address(0)) {
             total += IERC20(tokensInfo[0].asset).balanceOf(address(this));
-            
+
             // wKoKAIA (if any held directly)
-             try IERC20(tokensInfo[0].tokenA).balanceOf(address(this)) returns (uint256 wBalance) {
+            try IERC20(tokensInfo[0].tokenA).balanceOf(address(this)) returns (uint256 wBalance) {
                 if (wBalance > 0) {
-                     total += IWrappedLST(tokensInfo[0].tokenA).getUnwrappedAmount(wBalance);
+                    total += IWrappedLST(tokensInfo[0].tokenA).getUnwrappedAmount(wBalance);
                 }
             } catch {}
-            
-            // DragonSwap NFT Position (LP)
-            uint256 tokenId = lpTokenIds[0];
-            if (tokenId != 0) {
-                 // Future: Get value from position manager
-            }
+
+            // DragonSwap NFT Position (LP) — valued via sqrtPriceX96
+            total += _getLPValue();
         }
 
-        // Agent capital now stays in vault as KoKAIA — already counted above
-
+        // Agent capital stays in vault as KoKAIA — already counted above
         return total;
+    }
+
+    /**
+     * @dev Calculate the KAIA-denominated value of the LP position.
+     *      For full-range V3: amount0 ≈ L * Q96 / sqrtP, amount1 ≈ L * sqrtP / Q96.
+     *      Total value ≈ amount0 + amount1 (valid for pegged pairs at ~1:1).
+     */
+    function _getLPValue() internal view returns (uint256) {
+        uint256 tokenId = lpTokenIds[0];
+        if (tokenId == 0) return 0;
+
+        INonfungiblePositionManager pm = DragonSwapHandler(dragonSwapHandler).positionManager();
+        (, , , , , , , uint128 liquidity, , , , ) = pm.positions(tokenId);
+        if (liquidity == 0) return 0;
+
+        uint160 sqrtPriceX96 = _getPoolSqrtPrice();
+        if (sqrtPriceX96 == 0) return 0;
+
+        uint256 Q96 = 1 << 96;
+        // amount0 ≈ L * Q96 / sqrtP  (token0 side)
+        // amount1 ≈ L * sqrtP / Q96  (token1 side)
+        uint256 amount0 = Math.mulDiv(uint256(liquidity), Q96, uint256(sqrtPriceX96));
+        uint256 amount1 = Math.mulDiv(uint256(liquidity), uint256(sqrtPriceX96), Q96);
+
+        return amount0 + amount1;
     }
     
     /**
@@ -269,12 +301,36 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
 
     // --- End Rescue Functions ---
     
-    function instantWithdraw(uint256 amount) external returns (bool) {
-        return handleWithdraw(amount, msg.sender);
-    }
-    
     /**
-     * @notice Handle withdrawal request from ShareVault.
+     * @notice Handle instant withdrawal — deducts fee, sources WKAIA from LP/DEX.
+     * @dev Called by ShareVault. Fee is deducted first from gross amount.
+     *      Only netAmount is sourced (via LP removal → KoKAIA DEX swap → liquid WKAIA).
+     *      Fee stays as vault assets (benefits remaining depositors).
+     * @param amount The gross amount of assets requested.
+     * @param recipient The user address (for event logging).
+     * @return netAmount The actual KAIA sent to ShareVault after fee deduction.
+     */
+    function handleInstantWithdraw(uint256 amount, address recipient) external returns (uint256 netAmount) {
+        if (msg.sender != shareVault) revert("E1");
+        if (amount == 0) revert("E2");
+
+        // 1. Deduct fee first
+        uint256 fee = (amount * instantWithdrawFeeBps) / 10000;
+        netAmount = amount - fee;
+
+        // 2. Source only netAmount of WKAIA (fee stays as vault assets)
+        _ensureWKAIA(netAmount);
+
+        // 3. Send net amount to ShareVault
+        IWKaia(wkaia).withdraw(netAmount);
+        (bool success, ) = shareVault.call{value: netAmount}("");
+        require(success, "Transfer failed");
+
+        emit InstantWithdrawExecuted(recipient, amount, fee, netAmount);
+    }
+
+    /**
+     * @notice Handle standard withdrawal request from ShareVault.
      * @dev Withdrawal Strategy (in order of preference):
      *      1. Use liquid WKAIA held in Vault.
      *      2. Swap free KoKAIA to WKAIA via DragonSwap.
@@ -286,49 +342,114 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     function handleWithdraw(uint256 amount, address recipient) public returns (bool) {
         if (msg.sender != shareVault) revert("E1");
         if (amount == 0) revert("E2");
-        
-        uint256 wkaiaBalance = IERC20(wkaia).balanceOf(address(this));
-        
-        if (wkaiaBalance < amount) {
-            uint256 needed = amount - wkaiaBalance;
-            
-            // 1. Try swapping free KoKAIA first
-            TokenInfo memory info = tokensInfo[0];
-            uint256 kokaiaBal = IERC20(info.asset).balanceOf(address(this));
-            
-            if (kokaiaBal > 0) {
-                uint256 amountToSwap = kokaiaBal; // Use all available if needed
-                
-                IERC20(info.asset).forceApprove(dragonSwapHandler, amountToSwap);
-                
-                try DragonSwapHandler(dragonSwapHandler).swapExactOutput(
-                    info.asset,
-                    wkaia,
-                    info.feeTier,
-                    needed,       // amountOut desired
-                    amountToSwap  // max In
-                ) returns (uint256 /*consumed*/) {
-                    needed = 0;
-                } catch {
-                    // Swap failed or insufficient liquidity
-                }
-            }
-            
-            // 2. If still needed, Break LP (Future Impl)
-            if (needed > 0 && lpTokenIds[0] != 0) {
-                // _removeLiquidity(needed); // Not implemented yet
-            }
-            
-            wkaiaBalance = IERC20(wkaia).balanceOf(address(this));
-            if (wkaiaBalance < amount) revert("E6"); 
-        }
-        
+
+        _ensureWKAIA(amount);
+
         IWKaia(wkaia).withdraw(amount);
         (bool success, ) = shareVault.call{value: amount}("");
         require(success, "Transfer failed");
-        
+
         emit AssetsWithdrawn(amount, recipient);
         return true;
+    }
+
+    /**
+     * @dev Ensure vault holds at least `needed` WKAIA.
+     *      Priority: liquid WKAIA → proportional LP removal → KoKAIA DEX swap.
+     */
+    function _ensureWKAIA(uint256 needed) private {
+        uint256 wkaiaBalance = IERC20(wkaia).balanceOf(address(this));
+        if (wkaiaBalance >= needed) return;
+
+        uint256 deficit = needed - wkaiaBalance;
+
+        // 1. Proportional LP removal (returns WKAIA + KoKAIA to vault)
+        if (lpTokenIds[0] != 0) {
+            _removeLiquidity(deficit);
+            wkaiaBalance = IERC20(wkaia).balanceOf(address(this));
+            if (wkaiaBalance >= needed) return;
+            deficit = needed - wkaiaBalance;
+        }
+
+        // 2. Swap available KoKAIA → WKAIA to cover remaining deficit
+        TokenInfo memory info = tokensInfo[0];
+        uint256 kokaiaBal = IERC20(info.asset).balanceOf(address(this));
+
+        if (kokaiaBal > 0 && deficit > 0) {
+            IERC20(info.asset).forceApprove(dragonSwapHandler, kokaiaBal);
+
+            try DragonSwapHandler(dragonSwapHandler).swapExactOutput(
+                info.asset,
+                wkaia,
+                info.feeTier,
+                deficit,
+                kokaiaBal
+            ) returns (uint256) {} catch {}
+        }
+
+        wkaiaBalance = IERC20(wkaia).balanceOf(address(this));
+        if (wkaiaBalance < needed) revert("E6");
+    }
+
+    /**
+     * @dev Remove proportional liquidity from DragonSwap V3 LP position.
+     *      Uses pool sqrtPriceX96 to calculate exact liquidity for `targetWKAIA`.
+     *
+     *      Math (full-range V3, pegged pair):
+     *        valuePerL = Q96/sqrtP + sqrtP/Q96  (scaled by 1e18)
+     *        liquidityNeeded = targetWKAIA * 1e18 / valuePerL
+     *        +3% buffer for swap fee & price impact
+     *
+     * @param targetWKAIA The WKAIA amount we need from LP.
+     */
+    function _removeLiquidity(uint256 targetWKAIA) private {
+        uint256 tokenId = lpTokenIds[0];
+        if (tokenId == 0) return;
+
+        INonfungiblePositionManager pm = DragonSwapHandler(dragonSwapHandler).positionManager();
+        (, , , , , , , uint128 totalLiquidity, , , , ) = pm.positions(tokenId);
+        if (totalLiquidity == 0) return;
+
+        // Calculate proportional liquidity via sqrtPriceX96
+        uint160 sqrtPriceX96 = _getPoolSqrtPrice();
+        if (sqrtPriceX96 == 0) return;
+
+        uint256 Q96 = 1 << 96;
+        // Value per unit of liquidity (scaled by 1e18 for precision)
+        uint256 termA = Math.mulDiv(Q96, 1e18, uint256(sqrtPriceX96));      // token0 side per L
+        uint256 termB = Math.mulDiv(uint256(sqrtPriceX96), 1e18, Q96);      // token1 side per L
+        uint256 valuePerL = termA + termB; // ≈ 2e18 for 1:1 price
+
+        // Liquidity needed (with 3% buffer for swap fee + price impact)
+        uint256 rawLiquidity = Math.mulDiv(targetWKAIA, 1e18, valuePerL);
+        uint256 buffered = rawLiquidity * 103 / 100;
+        uint128 liquidityToRemove = buffered > uint256(totalLiquidity)
+            ? totalLiquidity
+            : uint128(buffered);
+
+        // Approve handler to manage NFT position (ERC721 approve)
+        pm.approve(dragonSwapHandler, tokenId);
+
+        (uint256 amount0, uint256 amount1) = DragonSwapHandler(dragonSwapHandler).decreaseLiquidityAndCollect(
+            tokenId, liquidityToRemove, 0, 0
+        );
+
+        // Clear LP tracking if all liquidity removed
+        if (liquidityToRemove == totalLiquidity) {
+            lpTokenIds[0] = 0;
+        }
+
+        emit LiquidityRemoved(0, liquidityToRemove, amount0 + amount1);
+    }
+
+    /**
+     * @dev Get sqrtPriceX96 from the DragonSwap V3 pool.
+     */
+    function _getPoolSqrtPrice() private view returns (uint160) {
+        TokenInfo memory info = tokensInfo[0];
+        if (info.poolAddress == address(0)) return 0;
+        (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(info.poolAddress).slot0();
+        return sqrtPriceX96;
     }
 
     // ========== INTERNAL HELPERS ==========
@@ -381,6 +502,10 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     function setInvestmentRatios(uint256 _i, uint256 _b, uint256 _a) external onlyOwner {
         require(_b + _a <= 10000, "E14");
         investRatio = _i; balancedRatio = _b; aggressiveRatio = _a;
+    }
+    function setInstantWithdrawFee(uint256 _feeBps) external onlyOwner {
+        require(_feeBps <= 1000, "E15"); // Max 10%
+        instantWithdrawFeeBps = _feeBps;
     }
     function setWKaia(address _wkaia) external onlyOwner { wkaia = _wkaia; }
     function setAgentAddress(address _agent) external onlyOwner { agentAddress = _agent; }

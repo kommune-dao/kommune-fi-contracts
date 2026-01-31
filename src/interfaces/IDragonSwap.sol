@@ -105,4 +105,19 @@ interface INonfungiblePositionManager {
         uint128 tokensOwed0,
         uint128 tokensOwed1
     );
+
+    // ERC721 approve — needed for VaultCore to authorize DragonSwapHandler
+    function approve(address to, uint256 tokenId) external;
+}
+
+interface IUniswapV3Pool {
+    function slot0() external view returns (
+        uint160 sqrtPriceX96,
+        int24 tick,
+        uint16 observationIndex,
+        uint16 observationCardinality,
+        uint16 observationCardinalityNext,
+        uint8 feeProtocol,
+        bool unlocked
+    );
 }

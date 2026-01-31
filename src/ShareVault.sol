@@ -17,6 +17,7 @@ interface IVaultCore {
     function handleDeposit(uint256 amount, address depositor) external returns (bool);
     function handleDepositKAIA() external payable returns (bool);
     function handleWithdraw(uint256 amount, address owner) external returns (uint256);
+    function handleInstantWithdraw(uint256 amount, address recipient) external returns (uint256);
     function handleRedeem(uint256 shares, address owner) external returns (uint256);
     function totalAssets() external view returns (uint256);
 }
@@ -62,6 +63,7 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
     event ProviderAdded(address indexed provider);
     event ProviderRemoved(address indexed provider);
     event WithdrawWithProvider(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares, address provider, uint256 providerFee);
+    event InstantWithdraw(address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares, uint256 netAmount);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -334,6 +336,100 @@ contract ShareVault is ERC4626Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         return assets;
     }
     
+    /**
+     * @notice Instant withdraw — deducts fee, sources WKAIA from LP/DEX.
+     * @param assets The amount of assets to withdraw.
+     * @param receiver The address receiving KAIA.
+     * @param owner The share owner whose shares are burned.
+     * @return shares The number of shares burned.
+     */
+    function instantWithdraw(uint256 assets, address receiver, address owner)
+        public
+        returns (uint256 shares)
+    {
+        return instantWithdrawWithProvider(assets, receiver, owner, address(0));
+    }
+
+    /**
+     * @notice Instant withdraw with provider fee sharing.
+     * @param assets The amount of assets to withdraw.
+     * @param receiver The address receiving KAIA.
+     * @param owner The share owner whose shares are burned.
+     * @param provider The provider address (for fee split).
+     * @return shares The number of shares burned.
+     */
+    function instantWithdrawWithProvider(uint256 assets, address receiver, address owner, address provider)
+        public
+        nonReentrant
+        returns (uint256 shares)
+    {
+        require(assets > 0, "Zero amount");
+        require(vaultCore != address(0), "VaultCore not set");
+
+        shares = previewWithdraw(assets);
+
+        // Check allowance if not owner
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        // Burn shares first
+        _burn(owner, shares);
+
+        // Call VaultCore.handleInstantWithdraw — returns netAmount after instant withdraw fee
+        uint256 kaiaBefore = address(this).balance;
+        (bool success, bytes memory data) = vaultCore.call(
+            abi.encodeWithSignature("handleInstantWithdraw(uint256,address)", assets, receiver)
+        );
+        require(success, "Instant withdraw failed");
+        uint256 netAmount = abi.decode(data, (uint256));
+
+        uint256 kaiaReceived = address(this).balance - kaiaBefore;
+        require(kaiaReceived >= netAmount, "Insufficient KAIA");
+
+        // Apply platform fees on netAmount
+        uint256 providerFee = 0;
+        uint256 treasuryFee = 0;
+        uint256 userAmount = netAmount;
+
+        if (basisPointsFees > 0 && treasury != address(0)) {
+            uint256 feeAmount = (netAmount * basisPointsFees) / 10000;
+            userAmount = netAmount - feeAmount;
+
+            if (provider != address(0) && isProvider[provider]) {
+                providerFee = feeAmount / 3;
+                treasuryFee = feeAmount - providerFee;
+            } else {
+                treasuryFee = feeAmount;
+            }
+        }
+
+        // Distribute KAIA
+        if (providerFee > 0) {
+            (bool providerSent, ) = provider.call{value: providerFee}("");
+            require(providerSent, "Provider fee failed");
+        }
+        if (treasuryFee > 0) {
+            (bool treasurySent, ) = treasury.call{value: treasuryFee}("");
+            require(treasurySent, "Treasury fee failed");
+        }
+        (bool receiverSent, ) = receiver.call{value: userAmount}("");
+        require(receiverSent, "Transfer to receiver failed");
+
+        // Update deposit tracking
+        if (deposits[owner].amount >= assets) {
+            deposits[owner].amount -= assets;
+        } else {
+            deposits[owner].amount = 0;
+        }
+        if (balanceOf(owner) == 0 && totalDepositors > 0) {
+            totalDepositors--;
+            deposits[owner].amount = 0;
+        }
+
+        emit InstantWithdraw(msg.sender, receiver, owner, assets, shares, netAmount);
+    }
+
     /**
      * @dev Receive KAIA from VaultCore for withdrawal distribution
      */

@@ -74,5 +74,8 @@ contract SharedStorage {
     address public stKaiaToken;        // slot 22 - stKAIA token contract
     address public stKaiaRateProvider; // slot 23 - stKAIA Rate Provider contract
 
-    uint256[27] private __gap;  // Reserve slots 24-50 for future variables (reduced from 29)
+    // ========== INSTANT WITHDRAW (slot 24) ==========
+    uint256 public instantWithdrawFeeBps; // slot 24 - fee in basis points (10 = 0.1%), stays in vault
+
+    uint256[26] private __gap;  // Reserve slots 25-50 for future variables (reduced from 27)
 }
