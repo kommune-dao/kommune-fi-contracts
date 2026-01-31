@@ -2,7 +2,7 @@
 
 This document summarizes the currently recorded vault deployments for both Kairos testnet and Kaia mainnet.
 
-Last updated: 2026-01-28
+Last updated: 2026-01-31
 
 ## Kairos (Testnet, chainId 1001)
 
@@ -103,7 +103,67 @@ Source: `kommune-fi-contracts/deployments/mainnet/kaia-balanced.json`
   - balancedRatio: 5000
   - aggressiveRatio: 0
 
+## Kaia Mainnet — Audit Deployments (2026-01-30)
+
+### Audit Stable Profile
+
+Source: `kommune-fi-contracts/deployments/mainnet/audit-kaia-stable.json`
+
+- claimManager: `0x705843370841294241cA7E874Ae316F0931243c1`
+- dragonSwapHandler: `0x7F6a983e5509eD4168cA1Bf413be3259b5083768`
+- vaultCore: `0xfb2e4E39629b0DaC9c2fdf268191de46E214eC90`
+- shareVault: `0x7a801555A3c489652ce88D6E0768FA75E699088D`
+- network: `kaia` (chainId 8217)
+- deployedAt: `2026-01-30T02:34:49.163Z`
+- profile: `stable`
+- config:
+  - investRatio: 10000
+  - basisPointsFees: 1000
+
+### Audit Balanced Profile
+
+Source: `kommune-fi-contracts/deployments/mainnet/audit-kaia-balanced.json`
+
+- claimManager: `0xfb92d89692ec2281E9c7E3dBFa2b9F8D24c65563`
+- dragonSwapHandler: `0xe19281449BAB0e87b694f62BC8062A706E741A36`
+- vaultCore: `0x65Aba372d675d117a6aEc9736C7F703De7f08B51`
+- shareVault: `0x2ec03439830f5da9d539C4537846C3708F232c77`
+- network: `kaia` (chainId 8217)
+- deployedAt: `2026-01-30T03:30:00.000Z`
+- profile: `balanced`
+- config:
+  - investRatio: 10000
+  - basisPointsFees: 1000
+
+### Audit Aggressive Profile (AI Agent)
+
+Source: `kommune-fi-contracts/deployments/mainnet/audit-kaia-aggressive.json`
+
+- claimManager: `0x07fC311311143aB44D73D3DA484a8C4366F0ac5F`
+- dragonSwapHandler: `0xDa3Fce1B7e2a63918B47B3467831430B6bd8F812`
+- vaultCore: `0xc2AC68C0d96A34d9DAC80CF53BFFF003547ea493`
+- shareVault: `0x8663b23E3a4ECd9ED6424854656CC5463C11C197`
+- network: `kaia` (chainId 8217)
+- deployedAt: `2026-01-30T03:35:00.000Z`
+- profile: `aggressive`
+- config:
+  - investRatio: 10000
+  - basisPointsFees: 1000
+
+### Audit Kairos Testnet
+
+Source: `kommune-fi-contracts/deployments/testnet/audit-kairos.json`
+
+- claimManager: `0x1A9914728e101d2cEE477C3c1db98519B7B08B1D`
+- dragonSwapHandler: `0xd998B223dfD57D74fC15bbf127Ad32bbC4B04320`
+- vaultCore: `0x7BFFAb552E3CA60C9993C05bF66D078a3aDc09e6`
+- shareVault: `0xEce34C711903b0884DB9B2248f498796BA36980B`
+- network: `kairos` (chainId 1001)
+- deployedAt: `2026-01-28T14:40:55.316Z`
+- profile: `stable (audit baseline)`
+
 ## Notes
 
+- Audit deployments use `DragonSwapHandler` (replacing legacy `swapContract`/Balancer).
 - These addresses are sourced from JSON files in `kommune-fi-contracts/deployments/`.
 - Update the JSON files first, then sync this summary.

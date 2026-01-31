@@ -76,6 +76,45 @@ npx hardhat run scripts/testAuditUpgrade.js --network kairos
 
 ---
 
+## 📦 Commit Guidelines (Conventional Commits)
+
+Commits must follow **Simple Title + Detailed Body** format.
+
+### Format
+```text
+<type>: <short summary>
+
+<detailed explanation of what changed>
+<why it changed>
+<list of specific updates>
+```
+
+### Example
+```text
+docs: Complete documentation update and cleanup
+
+Update all documentation for reorganized project structure and remove 
+temporary planning files.
+
+Documentation updates:
+- README.md: Add organized documentation links
+- CLAUDE.md: Update with new project structure and deployment paths
+- Fix all links to use kebab-case paths
+
+Cleanup:
+- Remove FILE_CLEANUP_PLAN.md (task completed)
+```
+
+### Types
+*   `feat`: New feature
+*   `fix`: Bug fix
+*   `refactor`: Code change that neither fixes a bug nor adds a feature
+*   `docs`: Documentation only changes
+*   `chore`: Maintainance tasks (builds, tools, cleanup)
+*   `test`: Adding or missing tests
+
+---
+
 ## 🚫 Avoid Legacy Patterns (Do Not Use)
 *   ❌ `LPCalculations` (Removed/Archived)
 *   ❌ `SwapContract` (Replaced by `DragonSwapHandler`)

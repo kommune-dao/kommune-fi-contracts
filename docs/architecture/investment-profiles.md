@@ -1,213 +1,159 @@
-# Investment Profiles for KommuneFi V2
+# Investment Profiles — KommuneFi Vault
+
+Last updated: 2026-01-31
 
 ## Overview
 
-KommuneFi V2 supports flexible investment strategy allocation through configurable ratios. Instead of fixed vault types, the system uses investment ratios that can be adjusted to create different risk/return profiles.
+KommuneFi deploys **three independent vault sets** on Kaia mainnet, each with its own UUPS proxy contracts (ShareVault, VaultCore, DragonSwapHandler, ClaimManager). Profiles differ by on-chain ratio configuration and whether an AI Agent is attached.
 
-## Architecture
+## Ratio System
 
-### Investment Ratio System
-
-The system uses basis points (10000 = 100%) for precise ratio control:
-
-- **investRatio**: Total percentage of deposits to invest (vs keeping as liquidity)
-- **stableRatio**: Allocation to stable strategy (LST staking only)
-- **balancedRatio**: Allocation to balanced strategy (LST staking + Balancer LP for swap fees)
-- **aggressiveRatio**: Allocation to aggressive strategy (future implementation)
-
-**Important**: `stableRatio + balancedRatio + aggressiveRatio` must equal `investRatio`
-
-### Storage Layout
-
-Investment ratios are stored in SharedStorage.sol to ensure consistent storage layout:
+All ratios are in basis points (10000 = 100%).
 
 ```solidity
-uint256 public investRatio;      // slot 7 - Total investment percentage
-uint256 public stableRatio;      // slot 12 - Allocation to stable strategy
-uint256 public balancedRatio;    // slot 13 - Allocation to balanced strategy  
-uint256 public aggressiveRatio;  // slot 14 - Allocation to aggressive strategy
+// SharedStorage.sol
+uint256 public investRatio;      // slot 7  — % of deposit to invest
+uint256 public balancedRatio;    // slot 12 — % of invested amount routed to LP
+uint256 public aggressiveRatio;  // slot 13 — stored but NOT used in deposit flow
 ```
 
-## Investment Profiles
-
-### 1. Stable Profile (Conservative)
-- **Total Investment**: 90%
-- **Distribution**: 100% to LST staking
-- **Liquidity Buffer**: 10%
-- **Risk Level**: Low
-- **Target Users**: Conservative investors seeking maximum returns from LST staking
-
-```javascript
-investRatio: 9000      // 90% total (maximum returns)
-stableRatio: 9000      // 90% to LST
-balancedRatio: 0       // 0%
-aggressiveRatio: 0     // 0%
-```
-
-### 2. Balanced Profile (Moderate)
-- **Total Investment**: 90%
-- **Distribution**: 50% LST staking, 50% Balancer LP
-- **Liquidity Buffer**: 10%
-- **Risk Level**: Medium
-- **Target Users**: Moderate investors seeking diversified returns with swap fee income
-
-**Revenue Streams**:
-- Staking rewards from LST protocols (45% of deposits)
-- Swap fees from Balancer liquidity provision (45% of deposits)
-- Potential price appreciation of LST tokens
-
-```javascript
-investRatio: 9000      // 90% total (maximum returns)
-stableRatio: 4500      // 45% to LST staking only
-balancedRatio: 4500    // 45% to LST + Balancer LP
-aggressiveRatio: 0     // 0%
-```
-
-### 3. Aggressive Profile (Growth)
-- **Total Investment**: 90%
-- **Distribution**: 40% LST, 30% balanced, 30% aggressive
-- **Liquidity Buffer**: 10%
-- **Risk Level**: High
-- **Target Users**: Growth-focused investors seeking maximum returns with higher risk
-
-```javascript
-investRatio: 9000      // 90% total (maximum returns)
-stableRatio: 3600      // 36% to LST (40% of 90%)
-balancedRatio: 2700    // 27% to balanced (30% of 90%)
-aggressiveRatio: 2700  // 27% to aggressive (30% of 90%)
-```
-
-## Implementation
-
-### Setting Investment Ratios
+Set via owner-only function:
 
 ```solidity
-// Set stable profile
-await vaultCore.setInvestRatio(9000);  // 90% total investment for maximum returns
-await vaultCore.setInvestmentRatios(
-    9000,  // All 90% to stable
-    0,     // 0% to balanced
-    0      // 0% to aggressive
-);
+function setInvestmentRatios(uint256 _i, uint256 _b, uint256 _a) external onlyOwner {
+    require(_b + _a <= 10000, "E14");
+    investRatio = _i; balancedRatio = _b; aggressiveRatio = _a;
+}
 ```
 
-### Getting Current Ratios
+> **Note**: `stableRatio` was removed. The stable portion is implicit: `investRatio - balancedRatio` goes to KoKAIA staking.
 
-```solidity
-const ratios = await vaultCore.getInvestmentRatios();
-console.log(`Stable: ${ratios.stable / 100}%`);
-console.log(`Balanced: ${ratios.balanced / 100}%`);
-console.log(`Aggressive: ${ratios.aggressive / 100}%`);
-console.log(`Total: ${ratios.total / 100}%`);
+## Deposit Flow (VaultCore.handleDeposit)
+
+```text
+amountToInvest   = deposit × investRatio / 10000
+balancedPortion  = amountToInvest × balancedRatio / 10000
+stakePortion     = amountToInvest − balancedPortion
+
+KoKAIA staking   = stakePortion + (balancedPortion / 2)
+WKAIA for LP     = balancedPortion / 2
+
+If balancedPortion > 0 → mint DragonSwap V3 full-range LP (WKAIA + KoKAIA)
+Reserve           = deposit − amountToInvest  (stays as WKAIA)
 ```
 
-### Investment Flow
+`aggressiveRatio` is **not referenced** in the deposit flow. The aggressive strategy is implemented externally by the AI Agent operating on vault assets post-deposit.
 
-When deposits are made:
+---
 
-1. **Calculate Investment Amount**: `amountToInvest = deposit * investRatio / 10000`
-2. **Distribute to Strategies**:
-   - **Stable**: `stableAmount = deposit * stableRatio / 10000` → Direct LST staking for rewards
-   - **Balanced**: `balancedAmount = deposit * balancedRatio / 10000` → LST staking + Balancer LP for swap fees
-   - **Aggressive**: `aggressiveAmount = deposit * aggressiveRatio / 10000` → Future high-risk strategies
-3. **Maintain Liquidity**: Remaining amount stays as WKAIA for withdrawals
+## Mainnet Profiles (On-Chain State, 2026-01-31)
 
-#### Balanced Strategy Details
-The balanced strategy provides dual revenue streams:
-1. **Staking Phase**: Stake KAIA to LST protocols to get wrapped tokens
-2. **Liquidity Phase**: Add wrapped LST tokens to Balancer pools
-3. **Revenue**: Earn both staking rewards AND swap fees
-4. **Management**: Owner can add/remove liquidity as needed
+### 1. Stable
 
-## Deployment
+| Parameter | Value |
+|-----------|-------|
+| VaultCore | `0xfb2e4E39629b0DaC9c2fdf268191de46E214eC90` |
+| investRatio | 10000 (100%) |
+| balancedRatio | 0 |
+| aggressiveRatio | 0 |
+| Agent | None (`0x0`) |
+| stKAIA | Not upgraded |
+| LP Position | None |
+| Assets | ~100 KoKAIA |
 
-### Using deployWithProfile.js
+**Behavior**: 100% of deposits staked to KoKAIA. No LP, no agent, no reserve. Yield from KoKAIA staking rewards only.
 
-Deploy with specific profile:
+### 2. Balanced
+
+| Parameter | Value |
+|-----------|-------|
+| VaultCore | `0x65Aba372d675d117a6aEc9736C7F703De7f08B51` |
+| investRatio | 10000 (100%) |
+| balancedRatio | 10000 (100%) |
+| aggressiveRatio | 0 |
+| Agent | None (`0x0`) |
+| stKAIA | Not upgraded |
+| LP Position | NFT #42343 (active) |
+| Assets | ~0.6 WKAIA (LP remainder) |
+
+**Behavior**: With `balancedRatio=10000`, the entire deposit is treated as balanced portion:
+- 50% staked to KoKAIA
+- 50% kept as WKAIA
+- Both used to mint a full-range DragonSwap V3 WKAIA/KoKAIA LP position
+
+Yield from KoKAIA staking rewards + LP swap fees (0.1% fee tier).
+
+### 3. Aggressive
+
+| Parameter | Value |
+|-----------|-------|
+| VaultCore | `0xc2AC68C0d96A34d9DAC80CF53BFFF003547ea493` |
+| investRatio | 10000 (100%) |
+| balancedRatio | 0 |
+| aggressiveRatio | 0 |
+| Agent | `0x3797E85c0837C9d2aa3Df1D42fF397FDff274271` |
+| stKAIA Token | `0x42952B873ed6f7f0A7E4992E2a9818E3A9001995` |
+| stKAIA Rate Provider | `0xefBDe60d5402a570DF7CA0d26Ddfedc413260146` |
+| LP Position | NFT #42342 (exists) |
+| Assets | ~995 KoKAIA |
+
+**Behavior**: Deposit flow identical to Stable (100% KoKAIA staking). The AI Agent manages vault assets post-deposit via `onlyAgent` functions:
+
+- `agentSwap()` / `agentSwapExactOutput()` — DEX arbitrage (KoKAIA ↔ WKAIA)
+- `agentBuyStKaia()` — 2-hop: KoKAIA → WKAIA → stKAIA (exploits ~16.9% DEX vs unstake spread)
+- `agentRequestUnstake()` — stKAIA 7-day unbonding request
+- `agentClaimUnstake()` — Claim matured KAIA → auto-restake to KoKAIA
+
+This is the only profile upgraded to the latest VaultCore implementation (with SharedStorage slots 19-23: agent address, allocated capital, profit tracking, stKAIA addresses).
+
+---
+
+## Profile Comparison
+
+| | Stable | Balanced | Aggressive |
+|---|--------|----------|------------|
+| **Deposit** | 100% KoKAIA | 50% KoKAIA + 50% WKAIA → LP | 100% KoKAIA |
+| **Reserve** | 0% | 0% | 0% |
+| **LP** | No | DragonSwap V3 full-range | Via agent ops |
+| **Agent** | No | No | Yes |
+| **stKAIA** | No | No | Yes |
+| **Yield** | Staking | Staking + LP fees | Staking + agent arb |
+| **Contract Version** | Base | Base | Latest (stKAIA) |
+
+## Administration
+
+### Setting Ratios
 
 ```bash
-# Deploy stable profile (default)
-INVESTMENT_PROFILE=stable npx hardhat run scripts/deployWithProfile.js --network kairos
+# Stable: all staking
+PROFILE=stable INVEST=10000 BALANCED=0 AGGRESSIVE=0 \
+  npx hardhat run scripts/setRatios.js --network kaia
 
-# Deploy balanced profile
-INVESTMENT_PROFILE=balanced npx hardhat run scripts/deployWithProfile.js --network kairos
-
-# Deploy aggressive profile
-INVESTMENT_PROFILE=aggressive npx hardhat run scripts/deployWithProfile.js --network kairos
+# Balanced: all LP
+PROFILE=balanced INVEST=10000 BALANCED=10000 AGGRESSIVE=0 \
+  npx hardhat run scripts/setRatios.js --network kaia
 ```
 
-### Upgrading Existing Deployment
+### Setting Agent (Aggressive Only)
 
-```javascript
-// Upgrade VaultCore
-const VaultCore = await ethers.getContractFactory("VaultCore");
-const vaultCore = await upgrades.upgradeProxy(
-    vaultCoreAddress,
-    VaultCore,
-    { unsafeAllow: ['delegatecall'] }
-);
-
-// Set investment ratios
-await vaultCore.setInvestmentRatios(
-    stableRatio,
-    balancedRatio,
-    aggressiveRatio
-);
+```bash
+AGENT_ADDRESS=0x3797... npx hardhat run scripts/setAgentAddress.js --network kaia
 ```
 
-## Testing
+### Upgrading VaultCore
 
-### Test Scripts
+```bash
+# Per-profile upgrade
+PROFILE=aggressive npx hardhat run scripts/upgradeVaultCoreProfile.js --network kaia
 
-- `scripts/tests/testIntegratedStable.js` - Integration test with stable profile
-- `scripts/tests/testIntegratedBalanced.js` - Integration test with balanced profile
-- `scripts/deployFresh.js` - Deploy with specific profile
-
-### Test Coverage
-
-- ✅ Get/set investment ratios
-- ✅ Ratio validation (sum must equal investRatio)
-- ✅ Deposit distribution based on ratios
-- ✅ Profile switching
-- ✅ Edge case handling
-
-## Future Strategies
-
-### Balanced Strategy (Planned)
-- Liquidity provision in DEXs
-- Yield farming protocols
-- Stable-stable LP positions
-- Medium-risk DeFi strategies
-
-### Aggressive Strategy (Planned)
-- Leveraged positions
-- High-APY protocols
-- Volatile asset exposure
-- Advanced DeFi strategies
+# Aggressive-specific (includes stKAIA address setup)
+npx hardhat run scripts/upgradeVaultCoreAggressive.js --network kaia
+```
 
 ## Security Considerations
 
-1. **Ratio Validation**: Sum of strategy ratios must equal investRatio
-2. **Owner Control**: Only owner can modify investment ratios
-3. **Gradual Changes**: Consider implementing timelock for ratio changes
-4. **Audit Trail**: All ratio changes should be logged and monitored
-5. **Emergency Pause**: Ability to set investRatio to 0 in emergencies
-
-## Migration Path
-
-For existing deployments:
-
-1. Upgrade VaultCore contract
-2. Initialize ratios based on current investRatio
-3. All existing investment goes to stable strategy by default
-4. Adjust ratios as needed for desired profile
-
-## Monitoring
-
-Key metrics to monitor:
-
-- Current investment ratios
-- Total assets vs liquidity buffer
-- Strategy performance metrics
-- Withdrawal success rates
-- Gas costs for different profiles
+1. **Owner-only**: All ratio and agent changes require contract owner signature.
+2. **Agent isolation**: Agent EOA can only call whitelisted functions; assets never leave VaultCore.
+3. **Ratio validation**: `balancedRatio + aggressiveRatio <= 10000` enforced on-chain.
+4. **Storage safety**: UUPS proxy + SharedStorage pattern prevents slot collision on upgrade.
+5. **Emergency**: Set `investRatio=0` to halt new investment without blocking withdrawals.
