@@ -64,5 +64,15 @@ contract SharedStorage {
     // ========== DRAGONSWAP LP TRACKING (slot 18) ==========
     mapping(uint256 => uint256) public lpTokenIds;  // slot 18 - lstIndex => tokenId (NFT Position ID)
 
-    uint256[32] private __gap;  // Reserve slots 19-50 for future variables
+    // ========== AGGRESSIVE STRATEGY / AI AGENT (slots 19-21) ==========
+    address public agentAddress;           // slot 19 - Authorized agent EOA that can call agentSwap()
+    /// @custom:oz-renamed-from agentDeployedCapital
+    uint256 public agentAllocatedCapital;  // slot 20 - KAIA amount allocated to aggressive strategy (staked as KoKAIA in vault)
+    uint256 public agentTotalProfit;       // slot 21 - Cumulative profit from agent swaps (wei)
+
+    // ========== STKAIA STRATEGY (slots 22-23) ==========
+    address public stKaiaToken;        // slot 22 - stKAIA token contract
+    address public stKaiaRateProvider; // slot 23 - stKAIA Rate Provider contract
+
+    uint256[27] private __gap;  // Reserve slots 24-50 for future variables (reduced from 29)
 }

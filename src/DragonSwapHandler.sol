@@ -52,6 +52,14 @@ contract DragonSwapHandler is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGua
         emit CallerAuthorized(caller, status);
     }
 
+    function setSwapRouter(address _swapRouter) external onlyOwner {
+        swapRouter = ISwapRouter(_swapRouter);
+    }
+
+    function setPositionManager(address _positionManager) external onlyOwner {
+        positionManager = INonfungiblePositionManager(_positionManager);
+    }
+
     // --- Swap Functions ---
 
     /**

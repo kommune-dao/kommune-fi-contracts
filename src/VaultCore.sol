@@ -41,6 +41,10 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     event Claimed(address indexed user, uint256 indexed lstIndex, uint256 amount);
     event LiquidityAdded(uint256 indexed lstIndex, uint256 tokenAmount, uint256 lpReceived);
     event LiquidityRemoved(uint256 indexed lstIndex, uint256 lpAmount, uint256 tokenReceived);
+    event AgentSwapExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+    event AgentStKaiaPurchased(uint256 kokaiaSpent, uint256 stKaiaReceived);
+    event AgentUnstakeRequested(uint256 stKaiaAmount, uint256 requestId);
+    event AgentUnstakeClaimed(uint256 requestId, uint256 kaiaReceived);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -99,8 +103,8 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
         address tokenA = 0xdEC2Cc84f0a37Ef917f63212FE8ba7494b0E4B15;
         
         // DragonSwap WKAIA/KoKAIA Pool
-        address poolAddr = address(0); // TODO: Fill in real Mainnet Pool Address
-        uint24 feeTier = 500; // 0.05%
+        address poolAddr = 0x0BB457F4739dAdf707668AE4Fd3d5D530568D56d;
+        uint24 feeTier = 1000; // 0.1%
         
         tokensInfo[0] = TokenInfo(asset, asset, tokenA, wkaia, wkaia, poolAddr, feeTier);
     }
@@ -147,7 +151,9 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
                  // Future: Get value from position manager
             }
         }
-        
+
+        // Agent capital now stays in vault as KoKAIA — already counted above
+
         return total;
     }
     
@@ -173,40 +179,28 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
         uint256 amountToInvest = (amount * investRatio) / 10000;
         
         if (amountToInvest > 0) {
-             // 1. Calculate Split
-             // balancedRatio represents % of usage for LP. 
-             // Logic: "100% LP" means using the entire amountToInvest for LP.
-             // To create LP (WKAIA/KoKAIA approx 50/50), we keep 50% WKAIA and stake 50% KoKAIA.
-             
-             uint256 amountToStake;
-             uint256 amountToKeepWKAIA;
-             
-             if (balancedRatio > 0) {
-                 // Smart Split for LP
-                 uint256 lpPortion = (amountToInvest * balancedRatio) / 10000;
-                 uint256 stakePortion = (amountToInvest - lpPortion) + (lpPortion / 2);
-                 
-                 amountToStake = stakePortion;
-                 amountToKeepWKAIA = amountToInvest - stakePortion;
-             } else {
-                 // Stable Vault (100% Stake)
-                 amountToStake = amountToInvest;
-                 amountToKeepWKAIA = 0;
-             }
-             
-             // 2. Execute Staking
+             // Split: Balanced (LP) vs Stable+Aggressive (all KoKAIA staking)
+             // Aggressive portion stakes to KoKAIA same as stable; agent manages via agentSwap()
+             uint256 balancedPortion = (amountToInvest * balancedRatio) / 10000;
+             uint256 stakePortion = amountToInvest - balancedPortion;
+
+             // Balanced LP: 50% staked (KoKAIA) + 50% WKAIA
+             uint256 amountToStake = stakePortion + (balancedPortion / 2);
+             uint256 amountToKeepWKAIA = balancedPortion - (balancedPortion / 2);
+
+             // 1. Stake to KoKAIA (stable + aggressive combined)
              if (amountToStake > 0) {
                  IWKaia(wkaia).withdraw(amountToStake);
                  _stakeToProtocol(amountToStake);
                  emit StakeExecuted(amountToStake);
              }
-             
-             // 3. Add Liquidity (if we kept WKAIA for LP)
+
+             // 2. Add Liquidity (Balanced WKAIA side)
              if (amountToKeepWKAIA > 0) {
                  _addLiquidity(amountToKeepWKAIA);
              }
         }
-        
+
         emit AssetsDeposited(amount);
         return true;
     }
@@ -225,40 +219,33 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
         uint256 amountToInvest = (kaiaAmount * investRatio) / 10000;
         
         if (amountToInvest > 0) {
-             uint256 amountToStake;
-             uint256 amountToWrapWKAIA; // For LP
-             
-             if (balancedRatio > 0) {
-                 // Smart Split for LP
-                 uint256 lpPortion = (amountToInvest * balancedRatio) / 10000;
-                 uint256 stakePortion = (amountToInvest - lpPortion) + (lpPortion / 2);
-                 
-                 amountToStake = stakePortion;
-                 amountToWrapWKAIA = amountToInvest - stakePortion;
-             } else {
-                 amountToStake = amountToInvest;
-                 amountToWrapWKAIA = 0;
-             }
-             
-             // Execute Stake
+             // Split: Balanced (LP) vs Stable+Aggressive (all KoKAIA staking)
+             uint256 balancedPortion = (amountToInvest * balancedRatio) / 10000;
+             uint256 stakePortion = amountToInvest - balancedPortion;
+
+             // Balanced LP: 50% staked (KoKAIA) + 50% WKAIA
+             uint256 amountToStake = stakePortion + (balancedPortion / 2);
+             uint256 amountToWrapWKAIA = balancedPortion - (balancedPortion / 2);
+
+             // 1. Stake to KoKAIA (stable + aggressive combined)
              if (amountToStake > 0) {
                  _stakeToProtocol(amountToStake);
                  emit StakeExecuted(amountToStake);
              }
-             
-             // Wrap for LP
+
+             // 2. Wrap and Add Liquidity (Balanced WKAIA side)
              if (amountToWrapWKAIA > 0) {
                  IWKaia(wkaia).deposit{value: amountToWrapWKAIA}();
                  _addLiquidity(amountToWrapWKAIA);
              }
         }
-        
+
         // Wrap remainder (reserve) to WKAIA
         uint256 reserve = kaiaAmount - amountToInvest;
         if (reserve > 0) {
              IWKaia(wkaia).deposit{value: reserve}();
         }
-        
+
         emit KAIADeposited(kaiaAmount);
         return true;
     }
@@ -349,26 +336,14 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     function _stakeToProtocol(uint256 amount) private {
         TokenInfo memory info = tokensInfo[0]; // Always 0
         bool success;
-        
-        // Testnet: no params, Mainnet: address param
-        if (isMainnet) {
-            address activeNode = 0x9fA8A1dE3295A286b5e51dDEd41D08c417dF45A8;
-            (success,) = info.handler.call{value: amount}(
-                abi.encodeWithSignature("stake(address)", activeNode)
-            );
-        } else {
-            (success,) = info.handler.call{value: amount}(
-                abi.encodeWithSignature("stake()")
-            );
-        }
+
+        // KoKAIA uses stake() on both mainnet and testnet
+        (success,) = info.handler.call{value: amount}(
+            abi.encodeWithSignature("stake()")
+        );
         if (!success) revert("E8");
     }
     
-    function _processInvestment(uint256 kaiaAmount) private {
-        // Simple passthrough or deprecated
-        _stakeToProtocol(kaiaAmount);
-    }
-
     function _addLiquidity(uint256 wkaiaAmount) private {
         TokenInfo memory info = tokensInfo[0];
         uint256 kokaiaBalance = IERC20(info.asset).balanceOf(address(this));
@@ -404,12 +379,176 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     function setDragonSwapHandler(address _handler) external onlyOwner { dragonSwapHandler = _handler; }
     function setInvestRatio(uint256 _r) external onlyOwner { investRatio = _r; }
     function setInvestmentRatios(uint256 _i, uint256 _b, uint256 _a) external onlyOwner {
+        require(_b + _a <= 10000, "E14");
         investRatio = _i; balancedRatio = _b; aggressiveRatio = _a;
     }
     function setWKaia(address _wkaia) external onlyOwner { wkaia = _wkaia; }
+    function setAgentAddress(address _agent) external onlyOwner { agentAddress = _agent; }
+    function setStKaiaAddresses(address _token, address _rateProvider) external onlyOwner {
+        stKaiaToken = _token;
+        stKaiaRateProvider = _rateProvider;
+    }
     function updateTokenInfo() external onlyOwner { _initTokenInfo(); }
-    
-    // Claim functions
+
+    // ========== AGENT STRATEGY FUNCTIONS ==========
+
+    modifier onlyAgent() {
+        require(msg.sender == agentAddress, "Not agent");
+        _;
+    }
+
+    /**
+     * @notice Agent swaps vault assets via DragonSwap (exact input).
+     * @dev Assets remain in VaultCore. Agent triggers swap, output returns to vault.
+     * @param tokenIn Address of input token (e.g. KoKAIA).
+     * @param tokenOut Address of output token (e.g. WKAIA).
+     * @param fee Pool fee tier.
+     * @param amountIn Exact amount of input tokens to swap.
+     * @param amountOutMinimum Minimum output (slippage protection).
+     * @return amountOut Actual output received.
+     */
+    function agentSwap(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) external onlyAgent returns (uint256 amountOut) {
+        IERC20(tokenIn).forceApprove(dragonSwapHandler, amountIn);
+
+        amountOut = DragonSwapHandler(dragonSwapHandler).swapExactInput(
+            tokenIn, tokenOut, fee, amountIn, amountOutMinimum
+        );
+
+        IERC20(tokenIn).forceApprove(dragonSwapHandler, 0);
+
+        emit AgentSwapExecuted(tokenIn, tokenOut, amountIn, amountOut);
+    }
+
+    /**
+     * @notice Agent swaps vault assets via DragonSwap (exact output).
+     * @param tokenIn Address of input token.
+     * @param tokenOut Address of output token.
+     * @param fee Pool fee tier.
+     * @param amountOut Exact amount of output tokens desired.
+     * @param amountInMaximum Maximum input willing to spend.
+     * @return amountIn Actual input spent.
+     */
+    function agentSwapExactOutput(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountOut,
+        uint256 amountInMaximum
+    ) external onlyAgent returns (uint256 amountIn) {
+        IERC20(tokenIn).forceApprove(dragonSwapHandler, amountInMaximum);
+
+        amountIn = DragonSwapHandler(dragonSwapHandler).swapExactOutput(
+            tokenIn, tokenOut, fee, amountOut, amountInMaximum
+        );
+
+        IERC20(tokenIn).forceApprove(dragonSwapHandler, 0);
+
+        emit AgentSwapExecuted(tokenIn, tokenOut, amountIn, amountOut);
+    }
+
+    /**
+     * @notice Atomically swap KoKAIA → WKAIA → stKAIA in a single transaction.
+     * @param kokaiaAmount Amount of KoKAIA to sell.
+     * @param kokaiaToWkaiaFee Fee tier for KoKAIA/WKAIA pool (e.g. 1000).
+     * @param wkaiaToStkaiaFee Fee tier for WKAIA/stKAIA pool (e.g. 500).
+     * @param minStKaiaOut Minimum stKAIA output (slippage protection).
+     * @return stKaiaReceived Actual stKAIA received.
+     */
+    function agentBuyStKaia(
+        uint256 kokaiaAmount,
+        uint24 kokaiaToWkaiaFee,
+        uint24 wkaiaToStkaiaFee,
+        uint256 minStKaiaOut
+    ) external onlyAgent returns (uint256 stKaiaReceived) {
+        require(stKaiaToken != address(0), "stKAIA not set");
+        address kokaia = tokensInfo[0].asset;
+
+        // Step 1: KoKAIA → WKAIA
+        IERC20(kokaia).forceApprove(dragonSwapHandler, kokaiaAmount);
+        uint256 wkaiaAmount = DragonSwapHandler(dragonSwapHandler).swapExactInput(
+            kokaia, wkaia, kokaiaToWkaiaFee, kokaiaAmount, 0
+        );
+        IERC20(kokaia).forceApprove(dragonSwapHandler, 0);
+
+        // Step 2: WKAIA → stKAIA
+        IERC20(wkaia).forceApprove(dragonSwapHandler, wkaiaAmount);
+        stKaiaReceived = DragonSwapHandler(dragonSwapHandler).swapExactInput(
+            wkaia, stKaiaToken, wkaiaToStkaiaFee, wkaiaAmount, minStKaiaOut
+        );
+        IERC20(wkaia).forceApprove(dragonSwapHandler, 0);
+
+        emit AgentStKaiaPurchased(kokaiaAmount, stKaiaReceived);
+    }
+
+    /**
+     * @notice Request stKAIA unstaking (7-day unbonding).
+     * @param stKaiaAmount Amount of stKAIA to unstake.
+     * @return requestId The withdrawal request ID from stKAIA contract.
+     */
+    function agentRequestUnstake(uint256 stKaiaAmount) external onlyAgent returns (uint256 requestId) {
+        require(stKaiaToken != address(0), "stKAIA not set");
+        IERC20(stKaiaToken).forceApprove(stKaiaToken, stKaiaAmount);
+
+        (bool success, bytes memory data) = stKaiaToken.call(
+            abi.encodeWithSignature("requestWithdrawal(uint256)", stKaiaAmount)
+        );
+        require(success, "Unstake failed");
+        requestId = abi.decode(data, (uint256));
+
+        emit AgentUnstakeRequested(stKaiaAmount, requestId);
+    }
+
+    /**
+     * @notice Claim matured stKAIA withdrawal. Received KAIA is auto-restaked to KoKAIA.
+     * @param requestId The withdrawal request ID to claim.
+     * @return kaiaReceived Amount of KAIA received from claim.
+     */
+    function agentClaimUnstake(uint256 requestId) external onlyAgent returns (uint256 kaiaReceived) {
+        require(stKaiaToken != address(0), "stKAIA not set");
+        uint256 balBefore = address(this).balance;
+
+        (bool success,) = stKaiaToken.call(
+            abi.encodeWithSignature("claimWithdrawal(uint256)", requestId)
+        );
+        require(success, "Claim failed");
+
+        kaiaReceived = address(this).balance - balBefore;
+
+        // Auto-restake claimed KAIA → KoKAIA
+        if (kaiaReceived > 0) {
+            _stakeToProtocol(kaiaReceived);
+        }
+
+        emit AgentUnstakeClaimed(requestId, kaiaReceived);
+    }
+
+    // Unstake & Claim functions
+
+    /**
+     * @notice Initiate KoKAIA unstaking for a user (7-day unbonding on mainnet).
+     * @dev Delegatecalls to ClaimManager.executeUnstake(). Only owner (admin) can trigger.
+     *      Use this when DEX liquidity is insufficient for instant withdrawal.
+     * @param user The user address to unstake for.
+     * @param lstIndex The LST index (0 = KoKAIA).
+     * @param amount The amount of KoKAIA to unstake.
+     * @return bool True if successful.
+     */
+    function unstake(address user, uint256 lstIndex, uint256 amount) external onlyOwner returns (bool) {
+        require(claimManager != address(0), "ClaimManager not set");
+        (bool success, bytes memory data) = claimManager.delegatecall(
+            abi.encodeWithSignature("executeUnstake(address,uint256,uint256)", user, lstIndex, amount)
+        );
+        if (!success) revert("E22");
+        emit WrappedUnstake(user, lstIndex, amount);
+        return abi.decode(data, (bool));
+    }
+
     function claim(address user, uint256 lstIndex) external onlyOwner returns (uint256) {
         require(claimManager != address(0), "ClaimManager not set");
          (bool success, bytes memory data) = claimManager.delegatecall(
@@ -452,6 +591,10 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
                if (wBalance > 0) balances[3] = wBalance; // keep packed
             } catch {}
         }
+        // Agent allocation tracking
+        balances[4] = agentAllocatedCapital;
+        balances[5] = agentTotalProfit;
+
         return balances;
     }
 
@@ -460,6 +603,8 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
         names[1] = "WKAIA";
         names[2] = "KoKAIA";
         names[3] = "wKoKAIA";
+        names[4] = "AgentAllocated";
+        names[5] = "AgentProfit";
         return names;
     }
     
