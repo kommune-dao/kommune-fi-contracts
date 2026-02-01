@@ -17,14 +17,7 @@ module.exports = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1,
-            details: {
-              yul: true,
-              yulDetails: {
-                stackAllocation: true,
-                optimizerSteps: "dhfoDgvulfnTUtnIf[xa[r]EscLMcCTUtTOntnfDIulLculVcul [j]Tpeulxa[rul]xa[r]cLgvifCTUca[r]LSsTFOtfDnca[r]Iulc]jmul[jul] VcTOcul jmul"
-              }
-            }
+            runs: 200,
           },
           metadata: {
             bytecodeHash: "none"

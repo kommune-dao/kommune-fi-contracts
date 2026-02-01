@@ -48,6 +48,8 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     event AgentUnstakeRequested(uint256 stKaiaAmount, uint256 requestId);
     event AgentUnstakeClaimed(uint256 requestId, uint256 kaiaReceived);
     event InstantWithdrawExecuted(address indexed recipient, uint256 grossAmount, uint256 fee, uint256 netAmount);
+    event InstantWithdrawAsKoKAIAExecuted(address indexed recipient, uint256 grossAmount, uint256 fee, uint256 netKoKAIA);
+    event InstantWithdrawAsLPTokensExecuted(address indexed recipient, uint256 grossAmount, uint256 fee, uint256 wkaiaAmount, uint256 kokaiaAmount);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -135,6 +137,7 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     /**
      * @dev Internal version for use by other functions (e.g. proportional LP removal).
      *      Includes LP valuation via pool sqrtPriceX96.
+     *      Uses raw staticcall for LP valuation to avoid Kaia EVM delegatecall+typed-call issue.
      */
     function _getTotalAssets() internal view returns (uint256 total) {
         // Native KAIA
@@ -156,8 +159,8 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
                 }
             } catch {}
 
-            // DragonSwap NFT Position (LP) — valued via sqrtPriceX96
-            total += _getLPValue();
+            // DragonSwap NFT Position (LP) — valued via raw staticcall
+            total += _getLPValueRaw();
         }
 
         // Agent capital stays in vault as KoKAIA — already counted above
@@ -165,28 +168,78 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     /**
-     * @dev Calculate the KAIA-denominated value of the LP position.
-     *      For full-range V3: amount0 ≈ L * Q96 / sqrtP, amount1 ≈ L * sqrtP / Q96.
-     *      Total value ≈ amount0 + amount1 (valid for pegged pairs at ~1:1).
+     * @dev Calculate LP value using raw staticcall to avoid Kaia EVM compatibility issue
+     *      with typed external calls through UUPS proxy delegatecall.
+     *      Enumerates ALL NFT positions owned by this vault (not just lpTokenIds[0]).
      */
-    function _getLPValue() internal view returns (uint256) {
-        uint256 tokenId = lpTokenIds[0];
-        if (tokenId == 0) return 0;
+    function _getLPValueRaw() internal view returns (uint256) {
+        // Get position manager address from DragonSwapHandler
+        address pmAddr;
+        {
+            (bool ok, bytes memory ret) = dragonSwapHandler.staticcall(
+                abi.encodeWithSignature("positionManager()")
+            );
+            if (!ok || ret.length < 32) return 0;
+            pmAddr = abi.decode(ret, (address));
+        }
 
-        INonfungiblePositionManager pm = DragonSwapHandler(dragonSwapHandler).positionManager();
-        (, , , , , , , uint128 liquidity, , , , ) = pm.positions(tokenId);
-        if (liquidity == 0) return 0;
-
-        uint160 sqrtPriceX96 = _getPoolSqrtPrice();
+        // Get sqrtPriceX96 from pool (shared across all positions)
+        uint160 sqrtPriceX96;
+        {
+            address poolAddr = tokensInfo[0].poolAddress;
+            if (poolAddr == address(0)) return 0;
+            (bool ok, bytes memory ret) = poolAddr.staticcall(
+                abi.encodeWithSignature("slot0()")
+            );
+            if (!ok || ret.length < 32) return 0;
+            sqrtPriceX96 = uint160(abi.decode(ret, (uint256)));
+        }
         if (sqrtPriceX96 == 0) return 0;
 
-        uint256 Q96 = 1 << 96;
-        // amount0 ≈ L * Q96 / sqrtP  (token0 side)
-        // amount1 ≈ L * sqrtP / Q96  (token1 side)
-        uint256 amount0 = Math.mulDiv(uint256(liquidity), Q96, uint256(sqrtPriceX96));
-        uint256 amount1 = Math.mulDiv(uint256(liquidity), uint256(sqrtPriceX96), Q96);
+        // Get number of NFT positions owned by this vault
+        uint256 nftCount;
+        {
+            (bool ok, bytes memory ret) = pmAddr.staticcall(
+                abi.encodeWithSignature("balanceOf(address)", address(this))
+            );
+            if (!ok || ret.length < 32) return 0;
+            nftCount = abi.decode(ret, (uint256));
+        }
+        if (nftCount == 0) return 0;
 
-        return amount0 + amount1;
+        uint256 Q96 = 1 << 96;
+        uint256 totalValue;
+
+        // Iterate over all NFT positions
+        for (uint256 i = 0; i < nftCount; i++) {
+            // Get tokenId at index i
+            uint256 tokenId;
+            {
+                (bool ok, bytes memory ret) = pmAddr.staticcall(
+                    abi.encodeWithSignature("tokenOfOwnerByIndex(address,uint256)", address(this), i)
+                );
+                if (!ok || ret.length < 32) continue;
+                tokenId = abi.decode(ret, (uint256));
+            }
+
+            // Get liquidity from this position
+            uint128 liquidity;
+            {
+                (bool ok, bytes memory ret) = pmAddr.staticcall(
+                    abi.encodeWithSignature("positions(uint256)", tokenId)
+                );
+                if (!ok || ret.length < 384) continue;
+                assembly {
+                    liquidity := mload(add(ret, 256)) // 32 (length prefix) + 7*32
+                }
+            }
+            if (liquidity == 0) continue;
+
+            totalValue += Math.mulDiv(uint256(liquidity), Q96, uint256(sqrtPriceX96));
+            totalValue += Math.mulDiv(uint256(liquidity), uint256(sqrtPriceX96), Q96);
+        }
+
+        return totalValue;
     }
     
     /**
@@ -327,6 +380,78 @@ contract VaultCore is SharedStorage, OwnableUpgradeable, UUPSUpgradeable {
         require(success, "Transfer failed");
 
         emit InstantWithdrawExecuted(recipient, amount, fee, netAmount);
+    }
+
+    /**
+     * @notice Handle instant withdrawal returning KoKAIA directly (no swap).
+     * @dev Called by ShareVault. Fee is deducted first.
+     *      Transfers netAmount of KoKAIA tokens directly to ShareVault.
+     *      Used for Conservative/Aggressive vaults when user opts to receive KoKAIA.
+     * @param amount The gross amount of assets requested (KAIA-denominated).
+     * @param recipient The user address (for event logging).
+     * @return netAmount The KoKAIA amount sent to ShareVault after fee deduction.
+     */
+    function handleInstantWithdrawAsKoKAIA(uint256 amount, address recipient) external returns (uint256 netAmount) {
+        if (msg.sender != shareVault) revert("E1");
+        if (amount == 0) revert("E2");
+
+        // 1. Deduct fee (fee stays as vault assets)
+        uint256 fee = (amount * instantWithdrawFeeBps) / 10000;
+        netAmount = amount - fee;
+
+        // 2. Verify sufficient KoKAIA balance
+        uint256 kokaiaBalance = IERC20(tokensInfo[0].asset).balanceOf(address(this));
+        require(kokaiaBalance >= netAmount, "Insufficient KoKAIA");
+
+        // 3. Transfer KoKAIA directly to ShareVault (no swap, no unwrap)
+        IERC20(tokensInfo[0].asset).safeTransfer(shareVault, netAmount);
+
+        emit InstantWithdrawAsKoKAIAExecuted(recipient, amount, fee, netAmount);
+    }
+
+    /**
+     * @notice Handle instant withdrawal returning LP components (WKAIA + KoKAIA).
+     * @dev Called by ShareVault. Fee is deducted first.
+     *      Removes proportional LP and transfers both tokens to ShareVault.
+     *      Used for Balanced vault when user opts to receive LP components.
+     * @param amount The gross amount of assets requested (KAIA-denominated).
+     * @param recipient The user address (for event logging).
+     * @return netAmount The net asset amount after fee deduction.
+     * @return wkaiaAmount The WKAIA amount sent to ShareVault.
+     * @return kokaiaAmount The KoKAIA amount sent to ShareVault.
+     */
+    function handleInstantWithdrawAsLPTokens(uint256 amount, address recipient)
+        external returns (uint256 netAmount, uint256 wkaiaAmount, uint256 kokaiaAmount)
+    {
+        if (msg.sender != shareVault) revert("E1");
+        if (amount == 0) revert("E2");
+
+        // 1. Deduct fee (fee stays as vault assets)
+        uint256 fee = (amount * instantWithdrawFeeBps) / 10000;
+        netAmount = amount - fee;
+
+        // 2. Record balances before LP removal
+        uint256 wkaiaBefore = IERC20(wkaia).balanceOf(address(this));
+        uint256 kokaiaBefore = IERC20(tokensInfo[0].asset).balanceOf(address(this));
+
+        // 3. Remove proportional LP (returns WKAIA + KoKAIA to this vault)
+        _removeLiquidity(netAmount);
+
+        // 4. Calculate actual amounts received from LP removal
+        wkaiaAmount = IERC20(wkaia).balanceOf(address(this)) - wkaiaBefore;
+        kokaiaAmount = IERC20(tokensInfo[0].asset).balanceOf(address(this)) - kokaiaBefore;
+
+        require(wkaiaAmount > 0 || kokaiaAmount > 0, "No LP tokens received");
+
+        // 5. Transfer both tokens to ShareVault
+        if (wkaiaAmount > 0) {
+            IERC20(wkaia).safeTransfer(shareVault, wkaiaAmount);
+        }
+        if (kokaiaAmount > 0) {
+            IERC20(tokensInfo[0].asset).safeTransfer(shareVault, kokaiaAmount);
+        }
+
+        emit InstantWithdrawAsLPTokensExecuted(recipient, amount, fee, wkaiaAmount, kokaiaAmount);
     }
 
     /**
