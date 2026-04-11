@@ -1,0 +1,13 @@
+{
+  "claimManager": "0x1A9914728e101d2cEE477C3c1db98519B7B08B1D",
+  "dragonSwapHandler": "0xd998B223dfD57D74fC15bbf127Ad32bbC4B04320",
+  "vaultCore": "0x7BFFAb552E3CA60C9993C05bF66D078a3aDc09e6",
+  "shareVault": "0xEce34C711903b0884DB9B2248f498796BA36980B",
+  "chainId": "1001",
+  "network": "kairos",
+  "deployedAt": "2026-01-28T14:40:55.316Z",
+  "configuration": {
+    "investRatio": 10000,
+    "basisPointsFees": 1000
+  }
+}

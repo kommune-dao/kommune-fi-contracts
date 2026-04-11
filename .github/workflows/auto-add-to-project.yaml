@@ -1,0 +1,14 @@
+name: Auto-add to project
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1
+        with:
+          project-url: https://github.com/orgs/kommune-dao/projects/2
+          github-token: ${{ secrets.PROJECT_TOKEN }}

@@ -1,0 +1,13 @@
+{
+  "claimManager": "0x705843370841294241cA7E874Ae316F0931243c1",
+  "dragonSwapHandler": "0x7F6a983e5509eD4168cA1Bf413be3259b5083768",
+  "vaultCore": "0xfb2e4E39629b0DaC9c2fdf268191de46E214eC90",
+  "shareVault": "0x7a801555A3c489652ce88D6E0768FA75E699088D",
+  "chainId": "8217",
+  "network": "kaia",
+  "deployedAt": "2026-01-30T02:34:49.163Z",
+  "configuration": {
+    "investRatio": 10000,
+    "basisPointsFees": 1000
+  }
+}
